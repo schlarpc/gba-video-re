@@ -1,5 +1,5 @@
-"""Run the player's own audio decoder (IWRAM 0x03006a14) under Unicorn on the real
-stream and compare against vxaudio.py.
+"""Run the player's own audio decoder (IWRAM 0x03006a14; 0x03007170 in the Rev 5 VXGB
+player, same code) under Unicorn on the real stream and compare against vxaudio.py.
 
   emu_audio.py [--rom ROM] [--stream OFF|IDX] [--start BYTE] [--count N|all]
 
@@ -15,6 +15,9 @@ import vxcart
 SENT = 0x02030000
 FRM = 0x08001800
 OUT = 0x06015f40
+# audio_decode_packet(src, dst) entry by player build (container/vxcart.py KNOWN_PLAYERS)
+ENTRY_VXGB = 0x03007170
+ENTRY_VXPP = 0x03006a14
 
 
 class ArmAudio:
@@ -29,6 +32,7 @@ class ArmAudio:
         mu.mem_write(0x02000000, rom[eo:eo + en])
         mu.mem_write(0x03000000, rom[io:io + isz])
         mu.mem_write(0x06015300, aud[:vxaudio.CODEBOOK_SIZE])   # what init does via two CpuSets
+        self.entry = ENTRY_VXGB if en == 0x2b48 else ENTRY_VXPP     # Rev 5 player: EWRAM image 0x2b48
 
     def run(self, fr):
         mu = self.mu
@@ -37,7 +41,7 @@ class ArmAudio:
         mu.reg_write(UC_ARM_REG_R1, OUT)
         mu.reg_write(UC_ARM_REG_SP, 0x03007f00)
         mu.reg_write(UC_ARM_REG_LR, SENT)
-        mu.emu_start(0x03006a14, SENT)
+        mu.emu_start(self.entry, SENT)
         return mu.reg_read(UC_ARM_REG_R0), bytes(mu.mem_read(OUT, 512))
 
 
