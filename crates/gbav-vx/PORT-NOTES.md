@@ -9,7 +9,7 @@ table overrun, field carries, 2x2 luma dither; brightness 0). Reference: `refere
 
 | module | ports | notes |
 |---|---|---|
-| `cart` | `container/vxcart.py`, vxdec_main.c stream scan | program table -> player layout, build id (md5 of the player program), stream headers, seek table |
+| `cart` | `tools/vx/container/vxcart.py`, vxdec_main.c stream scan | program table -> player layout, build id (md5 of the player program), stream headers, seek table |
 | `tables` | `gen_iwram_lut.py`, `gen_vxgb_tables.py`, residual.c literal tables | all read from the player images at runtime |
 | `bits` | `bits.h` | register-exact reader (refill phase, power-on vs seek init) |
 | `video` | `vxdec.c` | EWRAM-image decoder core (`Core`), VX++ and VXGB |
@@ -69,7 +69,7 @@ read from the ROM too, so the crate holds no ROM bytes.
 
 ## Fill tables: kept as checked-in Rust data
 
-`fill_tables.h` is the output of `decoder/gen_fill.py`, which symbolically executes the
+`fill_tables.h` is the output of `reference/vx/decoder/gen_fill.py`, which symbolically executes the
 player's straight-line ARM fill routines. The lists record code structure (which
 neighbours each store averages, in what order, and whether an operand is the truncated stored
 byte or the untruncated register), not ROM data. I kept them as data
@@ -114,7 +114,7 @@ cart displayed late (the screen still shows the previous picture); the test acce
 when the manifest screen equals one of our previous 8 pictures (same rule as the suite's
 verify_vx.py, which reported the same 26 / 8). Audio is checked against the streams.json
 aggregate digest where present and against the per-block manifest; the Shrek 2 Rev 5
-mismatch from block 296039 is the documented emulator-side audio underrun (perf-vx), not a
+mismatch from block 296039 is the documented emulator-side audio underrun (docs/vx/perf.md P2.4), not a
 decoder difference. With `GBAV_VX_PCM_REF`, every AFrame of every stream (not only the
 played ones) is compared with vxaudio.py at the 16 kHz sample level (i32) and at the 8-bit
 output level: all 10 streams match for every AFrame (see the table), including
@@ -150,7 +150,7 @@ found and fixed (ue(v) on an all-zero buffer, below).
 
 ## Performance (Rust vs C, whole movie, single thread)
 
-Release build vs the C reference built by decoder/Makefile (gcc -O2). The machine was shared
+Release build vs the C reference built by reference/vx/decoder/Makefile (gcc -O2). The machine was shared
 with other lanes (load average ~16 on 8 cores), so the numbers are +-10 %; best of 3.
 
 | stream | decode only: C / Rust | decode + blit + md5 of slot and picture: C / Rust |
