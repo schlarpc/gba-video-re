@@ -270,7 +270,8 @@ pub fn check_video<V: VideoDecoder>(dec: &mut V, m: &Manifest, known: &[&Known])
 }
 
 /// Check audio from power-on against a per-block (or per-call) manifest. With `on_row`, the
-/// callback sees every unit (row index, matched, decoder) after it is decoded.
+/// callback sees every unit (row index, matched in full, decoder) after it is decoded. With a
+/// `samples` column only that prefix of a block is hashed (the cart decoded no further).
 pub fn check_audio_blocks<A: AudioDecoder>(
     dec: &mut A,
     m: &Manifest,
@@ -281,6 +282,8 @@ pub fn check_audio_blocks<A: AudioDecoder>(
     let per_call = m.col("n");
     let frame_col = m.col("frame");
     let idx_col = m.col("block").or(m.col("call"));
+    // `samples` (ADS, Sonic X 2 proto): the cart decoded only that many bytes of the last block
+    let samples_col = if per_call.is_none() { m.col("samples") } else { None };
     let mut c = Check { total: m.rows.len() as u64, unit: if per_call.is_some() { "calls" } else { "blocks" }, ..Default::default() };
     for r in 0..m.rows.len() {
         let more = match per_call {
@@ -296,14 +299,21 @@ pub fn check_audio_blocks<A: AudioDecoder>(
         if per_call.is_none() {
             ok &= idx_col.is_none_or(|ic| Some(key.index) == m.num(r, ic).ok());
         }
-        ok &= md5c.iter().enumerate().all(|(i, &col)| md5::hex(dec.manifest_part(i)) == m.rows[r][col]);
+        let mut whole = true;
+        ok &= md5c.iter().enumerate().all(|(i, &col)| {
+            let part = dec.manifest_part(i);
+            let n = samples_col.and_then(|sc| m.num(r, sc).ok()).map_or(part.len(), |n| (n as usize).min(part.len()));
+            whole &= n == part.len();
+            md5::hex(&part[..n]) == m.rows[r][col]
+        });
+        if let Some(f) = on_row.as_mut() {
+            // a block the cart decoded only in part can not go into a segment
+            f(r, ok && whole, dec);
+        }
         if ok {
             c.ok += 1;
         } else {
             c.bad(r as u64, known.iter().any(|x| x.kind == "audio" && x.contains(r as u64)));
-        }
-        if let Some(f) = on_row.as_mut() {
-            f(r, ok, dec);
         }
     }
     Ok(c)
