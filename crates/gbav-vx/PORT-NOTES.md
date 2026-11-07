@@ -99,7 +99,8 @@ verify/streams.json), `GBAV_VX_PCM_REF` (vxaudio.py reference, `tests/pcm_ref.py
 
 Also per stream: every seek-table `video_bit` equals the continuous decode's frame start bit,
 0 decoder error flags, and where the repo ships `*.frame_bits.json.gz` (grammar walker), every
-frame start bit and the end bit equal the walker's. "Skipped blits" are frames the emulated
+frame start bit (and the end bit, where the file has it) equals the walker's (Shrek Rev 6 / Rev 5,
+Shark Tale Rev 5, Shrek 2 Rev 5). "Skipped blits" are frames the emulated
 cart displayed late (the screen still shows the previous picture); the test accepts them only
 when the manifest screen equals one of our previous 8 pictures (same rule as the suite's
 verify_vx.py, which reported the same 26 / 8). Audio is checked against the streams.json
@@ -107,7 +108,19 @@ aggregate digest where present and against the per-block manifest; the Shrek 2 R
 mismatch from block 296039 is the documented emulator-side audio underrun (perf-vx), not a
 decoder difference. With `GBAV_VX_PCM_REF`, every AFrame of every stream (not only the
 played ones) is compared with vxaudio.py at the 16 kHz sample level (i32) and at the 8-bit
-output level.
+output level: all 10 streams match for every AFrame (see the table), including
+Shrek 2 Rev 5 past the emulator underrun.
+
+| stream | AFrames = vxaudio.py (pcm + 8-bit) |
+|---|---|
+| shrek-rev6 / shrek-rev5 | 691876 / 691877 |
+| shrek2-rev6 / shrek2-rev5 | 709778 / 709779 |
+| sharktale-rev6 / sharktale-rev5 | 689316 / 689317 |
+| shrek-sharktale-rev5 20200 / 1eef800 / 3dd3600 / 3e76a00 | 637697 / 626486 / 10880 / 12928 |
+
+Whole-stream cross-check against the C binary: `vxdec --md5` (slot md5, picture md5, frame
+start bit per frame) and `examples/vx_bench md5` print identical lines for all 10 streams
+(294,057 frames).
 
 Differential fuzz against the C decoder: `tests/fuzz/gen_corpus.py` builds random valid
 frames with the repo's generators (fuzz.py for VX++, extended with real residual
@@ -117,7 +130,32 @@ case, random reference memory and nonzero-count grids, 15 % of cases with a rand
 (error paths), runs them through `libvxdec.so` (ctypes) and stores the C result;
 `tests/fuzz_c.rs` replays them and compares the whole 256 KiB EWRAM image, the final bit
 position and the error count. A deliberately broken Rust build (nC rounding, one dequant
-index) fails 34 of 40 cases, so the comparison has teeth. Results: see below.
+index) fails 34 of 40 cases, so the comparison has teeth.
+
+Result: 4,040 cases (2,022 VX++ / 2,018 VXGB; 600 with garbage tails, 582 of them raising
+decoder error flags in C), 0 mismatches. Coverage per 1,000 cases: all 24 modes at every
+partition size, ~110k CAVLC chroma blocks, every coeff_token class incl. the FLC, prefixes
+0..14 and the level escape, suffixLength 0..5, run_before for every zerosLeft, VX++ VLC codes
+plus ~8.6k / 1.5k / 34k escape mode 1 / 2 / 3 levels per 40 cases. One mismatch class was
+found and fixed (ue(v) on an all-zero buffer, below).
+
+## Performance (Rust vs C, whole movie, single thread)
+
+Release build vs the C reference built by decoder/Makefile (gcc -O2). The machine was shared
+with other lanes (load average ~16 on 8 cores), so the numbers are +-10 %; best of 3.
+
+| stream | decode only: C / Rust | decode + blit + md5 of slot and picture: C / Rust |
+|---|---|---|
+| Shrek Rev 6 (VX++, 37,837 frames) | 3.51 s / 2.90 s | 17.5 s / 17.4 s |
+| Shrek Rev 5 (VXGB, 37,837 frames) | 3.88 s / 3.17 s | 18.4 s / 19.0 s |
+| Shrek + Shark Tale 20200 (VX++ 240x112, 34,874) | 3.36 s / 2.29 s | 16.7 s / 12.6 s |
+| Shrek 2 Rev 6 (VX++, 38,816) | 3.99 s / 3.18 s | -- |
+| Shrek 2 Rev 5 (VXGB, 38,816) | 4.22 s / 3.13 s | -- |
+
+Decoding alone is 15-30 % faster in Rust (about 12,000 frames/s, 1,700x real time). In the
+`--md5` mode both are dominated by hashing 136 KiB per frame. The BGR555 blit adds about
+2.4 s per movie (60 us/frame). Audio: a whole movie's 709,778 AFrames, output stage
+included, take 1.3 s in Rust; vxaudio.py needs about 10 minutes.
 
 ## Decisions / differences from the C reference
 
