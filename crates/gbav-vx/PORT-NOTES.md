@@ -120,7 +120,7 @@ Shrek 2 Rev 5 past the emulator underrun.
 
 Whole-stream cross-check against the C binary: `vxdec --md5` (slot md5, picture md5, frame
 start bit per frame) and `examples/vx_bench md5` print identical lines for all 10 streams
-(294,057 frames).
+(299,137 frames).
 
 Differential fuzz against the C decoder: `tests/fuzz/gen_corpus.py` builds random valid
 frames with the repo's generators (fuzz.py for VX++, extended with real residual
@@ -132,7 +132,7 @@ case, random reference memory and nonzero-count grids, 15 % of cases with a rand
 position and the error count. A deliberately broken Rust build (nC rounding, one dequant
 index) fails 34 of 40 cases, so the comparison has teeth.
 
-Result: 4,040 cases (2,022 VX++ / 2,018 VXGB; 600 with garbage tails, 582 of them raising
+Result: 4,040 cases (2,020 VX++ / 2,020 VXGB; 595 with garbage tails; 582 cases raise
 decoder error flags in C), 0 mismatches. Coverage per 1,000 cases: all 24 modes at every
 partition size, ~110k CAVLC chroma blocks, every coeff_token class incl. the FLC, prefixes
 0..14 and the level escape, suffixLength 0..5, run_before for every zerosLeft, VX++ VLC codes
