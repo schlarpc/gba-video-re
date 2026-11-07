@@ -57,12 +57,15 @@ AUDIO_RATE = 65536        # TM0 reload 0xFF00, prescaler 1 -> 2^24/256
 MENU_FRAME = 880          # title menu is up and accepting input by here
 PRESS_FRAMES = 5
 SCREEN_W, SCREEN_H = 240, 160
-CART_SHA1 = {"f23390b7a62c605fbce6730addc29d381488e076": "combo"}
+CART_SHA1 = {"f23390b7a62c605fbce6730addc29d381488e076": "combo",
+             "6128a476edb10e6839ac5bd2697e83b9b7a9b234": "rev5",    # Shark Tale Rev 5 (VXGB)
+             "5cd627e205020297b25d707131883be5850515fe": "rev5"}    # Shrek 2 Rev 5 (VXGB)
 # Menu key presses (emu frame:button) that start each movie. Single-movie carts (Shrek,
 # Shark Tale, Shrek 2 Rev 6): A at the title = Play. Shrek + Shark Tale: the title lists
 # Shrek / Shark Tale; each has a submenu Play / Chapters / Controls / Credits, and Credits
 # plays a separate 240x160 stream.
 MENUS = {
+    ("rev5", 0x20200): "1000:A",          # Rev 5 single-movie carts: the title menu is up later
     ("combo", 0x20200): "880:A,960:A",                                     # Shrek, Play
     ("combo", 0x3DD3600): "880:A,960:DOWN,980:DOWN,1000:DOWN,1020:A",      # Shrek, Credits
     ("combo", 0x1EEF800): "880:DOWN,920:A,1000:A",                         # Shark Tale, Play
@@ -153,8 +156,8 @@ def main():
 
     r = retro.Retro(args.rom)
     hdr = struct.unpack_from("<4s3I", r._rom, args.stream)
-    if hdr[0] != b"VX++":
-        sys.exit(f"no VX++ header at 0x{args.stream:x}")
+    if hdr[0] not in (b"VX++", b"VXGB"):   # VXGB: Rev 5 player (docs/vxgb.md)
+        sys.exit(f"no VX++ / VXGB header at 0x{args.stream:x}")
     pw, ph = hdr[2], hdr[3]
     px0, py0 = (SCREEN_W - pw) // 2, (SCREEN_H - ph) // 2   # player centres the picture (0x03007ab0)
     presses = parse_menu(args.menu or menu_for(args.rom, args.stream))
