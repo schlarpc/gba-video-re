@@ -289,6 +289,7 @@ impl Job for Verify<'_> {
 
 struct MakeSegments<'a> {
     dir: &'a Path,
+    known: &'a [Known],
     family: &'a str,
     short_id: &'a str,
     seconds: u32,
@@ -301,7 +302,9 @@ impl Job for MakeSegments<'_> {
         for s in C::streams(rom)? {
             let paths = StreamManifests::new(self.dir, self.family, self.short_id, &s.id);
             let (Some(rate), Some(m)) = (s.audio_rate_hz, Manifest::load(&paths.audio)?) else { continue };
-            let (seg, check) = manifest::make_segments(&mut C::audio(rom, &s.id)?, &m, rate, self.seconds)?;
+            let sid = s.id.replace(' ', "_");
+            let known: Vec<&Known> = self.known.iter().filter(|k| k.short_id == self.short_id && k.stream == sid).collect();
+            let (seg, check) = manifest::make_segments(&mut C::audio(rom, &s.id)?, &m, &known, rate, self.seconds)?;
             std::fs::write(&paths.audio_seg, seg.to_gzip())
                 .map_err(|e| Error::Invalid(format!("{}: {e}", paths.audio_seg.display())))?;
             out.push((s.id, check, seg.rows.len()));
@@ -508,13 +511,14 @@ fn cmd_make_segments(args: &[String]) -> Result<bool> {
     let a = Args::parse(args, &["seconds", "jobs"])?;
     let dir = verify_dir()?;
     let carts = manifest::carts(&dir)?;
+    let known = manifest::known(&dir)?;
     let seconds = a.number("seconds")?.unwrap_or(30);
     let jobs = a.number("jobs")?.map_or_else(default_jobs, |j| j as usize);
     let paths = rom_paths(&a.positional)?;
     let results = par_map(&paths, jobs, |path| -> Result<Option<(String, Vec<(String, Check, usize)>)>> {
         let cart = load(path)?;
         let Some(entry) = carts.iter().find(|c| c.sha1 == cart.sha1()) else { return Ok(None) };
-        let job = MakeSegments { dir: &dir, family: &entry.family, short_id: &entry.short_id, seconds };
+        let job = MakeSegments { dir: &dir, known: &known, family: &entry.family, short_id: &entry.short_id, seconds };
         Ok(Some((entry.short_id.clone(), cart.run(job)?)))
     });
     let mut ok = true;
@@ -693,7 +697,7 @@ mod tests {
         assert_eq!((a1.ok, a1.known_bad, a1.first_bad), (1, 1, None));
         assert!(a1.passed() && !v1.passed());
         // segment manifests replace the per-block ones
-        let made = MakeSegments { dir: &dir, family: "mock", short_id: "cart", seconds: 30 }.run::<Mock>(&rom()).unwrap();
+        let made = MakeSegments { dir: &dir, known: &[], family: "mock", short_id: "cart", seconds: 30 }.run::<Mock>(&rom()).unwrap();
         assert_eq!(made.len(), 2);
         for s in ["s0", "s_1"] {
             std::fs::remove_file(dir.join("mock").join(format!("cart_{s}.audio_md5.csv.gz"))).unwrap();

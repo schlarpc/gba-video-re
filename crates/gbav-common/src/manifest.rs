@@ -390,8 +390,15 @@ pub fn check_audio<A: AudioDecoder>(
 /// Build the segment manifest of a stream from its per-block manifest: decode from power-on,
 /// check every unit against `m`, and cut the matching units into segments of about
 /// `seconds` of audio at `rate` Hz. A unit that does not match ends the current segment and is
-/// left out. Units are blocks, or samples for a per-call manifest (header column `n`).
-pub fn make_segments<A: AudioDecoder>(dec: &mut A, m: &Manifest, rate: u32, seconds: u32) -> Result<(Manifest, Check)> {
+/// left out, and so is every unit in a `known` audio range. Units are blocks, or samples for a
+/// per-call manifest (header column `n`).
+pub fn make_segments<A: AudioDecoder>(
+    dec: &mut A,
+    m: &Manifest,
+    known: &[&Known],
+    rate: u32,
+    seconds: u32,
+) -> Result<(Manifest, Check)> {
     let per_call = m.col("n").is_some();
     let names: Vec<String> = m.md5_cols().iter().map(|&i| m.header[i].clone()).collect();
     let nparts = names.len();
@@ -413,7 +420,8 @@ pub fn make_segments<A: AudioDecoder>(dec: &mut A, m: &Manifest, rate: u32, seco
         }
     };
     let check = {
-    let mut cb = |_r: usize, ok: bool, d: &A| {
+    let mut cb = |r: usize, ok: bool, d: &A| {
+        let ok = ok && !known.iter().any(|x| x.kind == "audio" && x.contains(r as u64));
         let len = if per_call { d.manifest_part(0).len() as u64 } else { 1 };
         let samples = d.pcm().len() as u64;
         if ok {
@@ -436,7 +444,7 @@ pub fn make_segments<A: AudioDecoder>(dec: &mut A, m: &Manifest, rate: u32, seco
         }
         unit_pos += len;
     };
-    check_audio_blocks(dec, m, &[], Some(&mut cb))?
+    check_audio_blocks(dec, m, known, Some(&mut cb))?
     };
     close(&mut cur, &mut segs);
     let mut header = vec!["segment".to_string()];
@@ -542,7 +550,7 @@ mod tests {
     fn segments_round_trip_and_skip_mismatches() {
         let m = block_manifest(40, &[13]);
         // 4 samples per block at "rate" 1 Hz, 10 s segments = 3 blocks (12 samples)
-        let (seg, c) = make_segments(&mut Mock::new(40), &m, 1, 10).unwrap();
+        let (seg, c) = make_segments(&mut Mock::new(40), &m, &[], 1, 10).unwrap();
         assert_eq!((c.ok, c.total, c.first_bad), (39, 40, Some(13)));
         assert_eq!(seg.header, ["segment", "first_block", "blocks", "md5"]);
         let firsts: Vec<u64> = (0..seg.rows.len()).map(|r| seg.num(r, 1).unwrap()).collect();
@@ -572,7 +580,7 @@ mod tests {
         let m = Manifest { header: vec!["call".into(), "n".into(), "md5".into()], rows };
         let c = check_audio_blocks(&mut Mock::new(40), &m, &[], None).unwrap();
         assert!(c.passed(), "{c}");
-        let (seg, _) = make_segments(&mut Mock::new(40), &m, 1, 20).unwrap();
+        let (seg, _) = make_segments(&mut Mock::new(40), &m, &[], 1, 20).unwrap();
         assert_eq!(seg.header[1], "first_sample");
         let c = check_audio_segments(&mut Mock::new(40), &seg, 1).unwrap();
         assert!(c.passed() && c.total >= 7, "{c}");
