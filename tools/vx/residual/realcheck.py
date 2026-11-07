@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Cross-check residual.c bit consumption on the real movie stream: walk frames with
-reference/vx/container/vxvwalk.py and, at every residual, run vx_residual() from the same bit position
+tools/vx/container/vxvwalk.py and, at every residual, run vx_residual() from the same bit position
 and require it to end at the same bit and return 0."""
 import ctypes, os, struct, sys, subprocess
 H = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(H, '../../../reference/vx/container'))
+sys.path.insert(0, os.path.join(H, '../../../tools/vx/container'))
 import vxvwalk
 so = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'libvxres_real.so')
 subprocess.check_call(['gcc', '-O2', '-shared', '-fPIC', '-o', so, os.path.join(H, '../../../reference/vx/decoder/residual.c')])

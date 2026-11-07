@@ -15,7 +15,7 @@
                chapter is picked from the menu) and compare the first K frames.
   --oracle N   run the Rev 5 player's own decoder (uc_oracle_vxgb.py) for frames 0..N-1 and
                compare the slot and the bit position of every macroblock.
-  --audio      decode the audio with reference/vx/container/vxaudio.py and compare the digest of the
+  --audio      decode the audio with tools/vx/container/vxaudio.py and compare the digest of the
                512-byte output blocks with the emulator's (the blocks the cartridge played).
 Exit status 0 only if everything matched.
 """
@@ -144,7 +144,7 @@ def check_audio(romb, nblocks, digest):
     if not nblocks:
         print("no emulator audio digest for this cart")
         return False
-    sys.path.insert(0, os.path.join(ROOT, "reference", "vx", "container"))
+    sys.path.insert(0, os.path.join(ROOT, "tools", "vx", "container"))
     import vxaudio
     h = struct.unpack_from("<4s13I", romb, VX)
     aud = romb[VX + h[7]:VX + h[8]]

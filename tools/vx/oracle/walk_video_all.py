@@ -1,5 +1,5 @@
 import os, sys, time, json
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'reference', 'vx', 'container'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tools', 'vx', 'container'))
 import vxdemux, vxvwalk
 rom = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'shrek.gba'), 'rb').read()
 c = vxdemux.VXContainer(rom)

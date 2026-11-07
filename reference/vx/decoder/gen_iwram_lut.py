@@ -4,7 +4,7 @@
 The YUV->RGB clamp table lives at IWRAM 0x030001f0 and is indexed from -260 to +509, so it
 reads into the IRQ table and the blitter's own code. The decoder therefore needs the player's
 runtime IWRAM 0x03000000..0x030003ff: the IWRAM image (its ROM offset comes from the player's
-load header, see reference/vx/container/vxcart.py) with the IRQ table entries main() installs. The
+load header, see tools/vx/container/vxcart.py) with the IRQ table entries main() installs. The
 blitter's height/width immediates (0x38c/0x394), which player_run patches per stream, are
 left at the image's placeholder value here; vx_yuv_to_bgr555() patches them for the stream
 it converts.
@@ -15,7 +15,7 @@ import hashlib
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "container"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tools", "vx", "container"))
 import vxcart  # noqa: E402
 
 PATCHES = {0x10: 0x00, 0x11: 0x01, 0x18: 0x2C, 0x19: 0x01}

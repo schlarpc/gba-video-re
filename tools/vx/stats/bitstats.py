@@ -16,7 +16,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..", "..", "..")
 VXDEC = os.path.join(ROOT, "reference", "vx", "decoder", "vxdec")
-sys.path.insert(0, os.path.join(ROOT, "reference", "vx", "container"))
+sys.path.insert(0, os.path.join(ROOT, "tools", "vx", "container"))
 sys.path.insert(0, os.path.join(ROOT, "tools", "common"))
 from roms import rom_path  # noqa: E402
 WORK = os.path.join(ROOT, "tmp", "vx")

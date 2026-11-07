@@ -19,7 +19,7 @@ Modes (combine freely; default = --manifest --frames --seek):
                manifest: proves every seek point is a self-contained keyframe.
   --oracle N   run the real ARM decoder (uc_oracle.py, unicorn) for frames 0..N-1 and
                compare slots and per-MB start bits with vxdec --trace.
-  --audio      decode every AFrame with reference/vx/container/vxaudio.py and compare the 512-byte
+  --audio      decode every AFrame with tools/vx/container/vxaudio.py and compare the 512-byte
                blocks the cartridge plays (count and md5 of the per-block md5 list in
                streams.json). Python, about 10 min per movie.
 Exit status 0 only if everything matched.
@@ -43,7 +43,7 @@ VXDEC = os.path.join(DECODER, "vxdec")
 VX = 0x20200
 SHREK_SHA1 = "95d612057682b7b886441d387b167ba2493e49ef"
 STREAMS = os.path.join(SHREK, "verify", "vx", "streams.json")
-sys.path.insert(0, os.path.join(SHREK, "reference", "vx", "container"))
+sys.path.insert(0, os.path.join(SHREK, "tools", "vx", "container"))
 import vxcart  # noqa: E402
 
 

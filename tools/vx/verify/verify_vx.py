@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the VX family decoders (reference/vx/decoder/vxdec for video, reference/vx/container/vxaudio.py
+"""Verify the VX family decoders (reference/vx/decoder/vxdec for video, tools/vx/container/vxaudio.py
 for audio) against the hashes-only emulator manifests in verify/vx/, for every stream of every
 VX++ / VXGB cart.
 
@@ -30,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..", "..", "..")
 VXDEC = os.path.join(ROOT, "reference", "vx", "decoder", "vxdec")
 MAN = os.path.join(ROOT, "verify", "vx")
-sys.path.insert(0, os.path.join(ROOT, "reference", "vx", "container"))
+sys.path.insert(0, os.path.join(ROOT, "tools", "vx", "container"))
 sys.path.insert(0, os.path.join(ROOT, "tools", "common"))
 from roms import rom_dir, rom_path  # noqa: E402
 

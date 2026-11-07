@@ -8,14 +8,14 @@ runs to the end of the AFrames."""
 import argparse, os, struct, sys
 from unicorn import Uc, UC_ARCH_ARM, UC_MODE_ARM
 from unicorn.arm_const import *
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'reference', 'vx', 'container'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tools', 'vx', 'container'))
 import vxaudio
 import vxcart
 
 SENT = 0x02030000
 FRM = 0x08001800
 OUT = 0x06015f40
-# audio_decode_packet(src, dst) entry by player build (reference/vx/container/vxcart.py KNOWN_PLAYERS)
+# audio_decode_packet(src, dst) entry by player build (tools/vx/container/vxcart.py KNOWN_PLAYERS)
 ENTRY_VXGB = 0x03007170
 ENTRY_VXPP = 0x03006a14
 

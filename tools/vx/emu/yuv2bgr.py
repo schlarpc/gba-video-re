@@ -17,7 +17,7 @@ def table(iwram=None):
         import os
         import sys
         here = os.path.dirname(os.path.abspath(__file__))
-        sys.path.insert(0, os.path.join(here, "..", "..", "..", "reference", "vx", "container"))
+        sys.path.insert(0, os.path.join(here, "..", "..", "..", "tools", "vx", "container"))
         import vxcart
         rom = open(os.path.join(here, "..", "..", "..", "shrek.gba"), "rb").read()
         off = vxcart.player_layout(rom)["iwram"][0]   # the table area is static data in the image
