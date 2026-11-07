@@ -19,6 +19,10 @@ python3 capture.py --checkpoints 1000 --frames 40000 --no-dump --out .
 python3 capture.py --skip 20000 --frames 30 --out deep20000
 # 4. Whole-movie md5 manifest (YUV + VRAM per frame, md5 per audio block), no raw dumps
 python3 capture.py --hash-only --frames 40000 --out manifest
+# Other carts / streams: --stream picks the movie and walks the cart's menu to it
+python3 capture.py --rom combo.gba --stream 0x1eef800 --hash-only --frames 99999 --out st
+python3 mkmanifest.py --rom combo.gba --stream 0x1eef800 --name shrek-sharktale-rev5_1eef800 \
+    --cart "Shrek + Shark Tale (USA) Rev 5" st          # -> verify/*.frame_md5.csv.gz, verify/streams.json
 # 5. Unicorn oracle: seed state (main loop idle after VX frame N, N >= 4), then decode / verify / trace
 python3 mkstate.py 100                       # -> states/wait_00100.state
 python3 uc_decode.py states/wait_00100.state --frames 199 --verify frames --audio-blocks 3000 --verify-audio audio
@@ -47,7 +51,8 @@ Matrix mapper (`src/gba/cart/matrix.c`). No BIOS file is needed: mGBA's built-in
 | `audio/blocks.csv` | per 512-sample block: block (= AFrame index), emu frame, ring slot, blocks played, vx decoded/displayed, audio map ptr, md5 |
 | `audio/core_mix.wav` | the libretro core's mixed stereo output. **Not bit-exact**, for listening only |
 | `states/vx_NNNNN.state` | mGBA savestate taken right after VX frame N was decoded (checkpoints) |
-| `manifest/frames/index.csv`, `manifest/audio/blocks.csv` | whole-movie md5 manifest |
+| `manifest/frames/index.csv`, `manifest/audio/blocks.csv` | whole-movie md5 manifest. `vram_md5` hashes the picture rectangle the player centres on the screen (the whole 240x160 screen for a 240x160 movie) |
+| `mkmanifest.py` | copies a hash-only capture into `verify/` (frame md5s, plus an md5 digest of the played audio blocks in `streams.json`) |
 
 ## How the movie is started
 
@@ -55,6 +60,13 @@ The title menu is up by emu frame ~800. `capture.py` presses A at emu frame 880 
 preselected. The player context becomes valid at emu frame 886. VX frame 0 is decoded at emu frame 887 and
 blitted at emu frame 899. Emulation is deterministic, so these numbers are the same on every run.
 Speed: about 2000 emulated frames/s. The whole movie is about 324k emu frames, so a full pass takes about 7 min.
+
+Other carts: Shark Tale and Shrek 2 (Rev 6) start the same way, with A at emu frame 880. The
+Shrek + Shark Tale title lists Shrek and Shark Tale (Down selects the second). Each has a
+submenu with Play, Chapters, Controls and Credits. `capture.py` holds the key sequence for each
+stream (`MENUS`) and checks that the player's ctx+0x20 names the requested stream.
+On the combo cart, the 240x112 movies leave the screen rows outside 24..135 black for the
+whole movie.
 
 ## Decoder output (the bit-exact target)
 

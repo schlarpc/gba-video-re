@@ -14,6 +14,9 @@ predecessor of Mobiclip. The repository has:
 `shrek.gba`, sha1 `95d612057682b7b886441d387b167ba2493e49ef`
 (header "SHREK MOVIE", game code MSKE). Put it at the repository root.
 
+The same player and the same tools also cover the other VX++ cartridges in the table below.
+Their player program is byte-identical to Shrek's; see [Other cartridges](#other-cartridges).
+
 ## Documents (`docs/`)
 
 | File | Contents |
@@ -50,10 +53,64 @@ python3 container/vxdemux.py info
 python3 container/vxdemux.py wav audio.wav
 ```
 
+Other cartridges: every tool takes the ROM path and a stream, either as a VX++ header offset
+or as an index (`vxdec ROM --list` or `vxdemux.py info ROM` lists them):
+
+```sh
+decoder/vxdec combo.gba --stream 0x1eef800 --count 70 --y4m sharktale.y4m
+python3 decoder/verify.py --rom combo.gba --stream 1 --manifest --seek --audio
+python3 container/vxdemux.py wav combo.gba --stream 1 sharktale.wav
+python3 container/emu_audio.py --rom combo.gba --stream 1 --count all
+```
+
 ## Verification status
 
 - **Video:** decoded output matches the emulator for all 37,837 frames. The screen image matches for all 37,833 frames the cartridge draws. All 195 seek points decode correctly from a cold start. 3,530 random valid frames give the same result from the cartridge's ARM code (run in unicorn) and from the C decoder.
 - **Audio:** all 691,876 audio frames match the player's own ARM routine, run in unicorn.
+
+## Other cartridges
+
+| Cartridge | sha1 | Stream (header offset) | Size | Frames | Result |
+|---|---|---|---|---|---|
+| Shrek (USA) Rev 6 | `95d61205…` | 0x20200 movie | 240x160 | 37,837 | all match |
+| Shark Tale (USA) Rev 6 | `9bc5b607…` | 0x20200 movie | 240x160 | 37,697 | all match |
+| Shrek 2 (USA) Rev 6 | `3bcb4acc…` | 0x20200 movie | 240x160 | 38,816 | all match |
+| Shrek + Shark Tale (USA) Rev 5 | `f23390b7…` | 0x20200 Shrek | 240x112 | 34,874 | all match |
+| | | 0x1eef800 Shark Tale | 240x112 | 34,261 | all match |
+| | | 0x3dd3600 Shrek credits | 240x160 | 595 | all match |
+| | | 0x3e76a00 Shark Tale credits | 240x160 | 707 | all match |
+
+Full sha1s are in `verify/streams.json`. "All match" means all of these checks pass:
+
+- Every frame's decoder slot (YUV) matches the emulator. Every frame the cartridge draws
+  also matches on screen (BGR555).
+- Every seek point decodes correctly from a cold start, for up to 1,000 frames.
+- Every seek point's bit offset equals the frame start found by a continuous decode.
+- Every audio frame matches the player's ARM routine run in unicorn, for the whole stream.
+- Every audio block the cartridge plays matches the emulator.
+
+The Rev 5 *Shark Tale* and *Shrek 2* cartridges use the older "VXGB" format, which these tools
+do not cover.
+
+The loader, all three programs and the player's EWRAM and IWRAM images are byte-identical on
+all four cartridges. Only the cartridge header and the menu data at ROM 0x20000 differ.
+The streams differ from Shrek in the following ways. The decoder needed only the last fix.
+
+- **240x112 picture (combo cartridge).** The player keeps four 0xF000-byte slots, stride
+  256. It decodes rows 0..111, and the rest of each slot keeps its initial value. The
+  blitter's height immediate is patched to 112, and the picture is centred at row 24. The
+  rows above and below it stay black.
+- **Short streams.** The two credits streams have one segment. Their chapter table holds
+  only frame 0, and header fields 0x24/0x30/0x34 are 0.
+- **QP.** Segment QPs are 33..37 instead of 30. *Shark Tale* also changes the QP inside a
+  segment twice.
+- **Encoder timing.** Some seek points' audio is one AFrame before or after
+  `floor((128f+1)/7)`, and two *Shark Tale* chapters start one frame after a seek point.
+  The player does not depend on either. It restarts both clocks at the seek point.
+- **Blit carries.** Above the clamp range, the clamp table reads code bytes that are larger
+  than 31. The blitter adds the colour fields together, so a large value carries into the
+  next field. Shrek never reaches this. Shark Tale does in 4 frames, and the combo cart's
+  Shark Tale in 30 frames. The decoder had modelled it with OR; it now adds.
 
 ## Licence
 

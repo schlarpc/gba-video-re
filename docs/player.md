@@ -143,7 +143,12 @@ Entry 0x02000058 (crt0). IRQ vector `[0x03007FFC] = 0x03000040`. Stacks: [0x0200
 - **0x03000370 yuv2rgb_blit(&{Y, UV, dst})**: processes 2x2 luma per chroma pair. Y stride 256, UV interleaved.
   `R = T[Y + 2V']`, `G = T[Y - (V' + U'/2)]`, `B = T[Y + 2U']`, with U' = U-128, V' = V-128 (byte 0 = U, byte 1 = V).
   T = clamp/>>3 LUT at `r3 = [0x03000510] = 0x030001F0`. Odd pixels use index-4: a 2x2 **ordered dither**.
-  It writes 2 pixels per 32-bit store.
+  It writes 2 pixels per 32-bit store. The store word is built with **adds**:
+  `R0 + G0<<5 + B0<<10 + R1<<16 + G1<<21 + B1<<26`. T covers indices -260..509, but only
+  part of that range is a real clamp table. Above it, T reads the blitter's own code bytes,
+  including the patched `#height`/`#width` immediates, and these values can be larger than 31.
+  A field can then carry into the next field, and the even pixel's B can carry into the odd
+  pixel's R. Shrek never reaches this. Shark Tale and the combo cart do (see README).
 - Self-modifying init in player_run (this is the "YUV conversion code" init):
   - 0x0300038C <- `mov sl,#height`, 0x03000394 <- `mov sl,#width`
   - 0x030004E8 <- `add r0,r0,#(0x200-w)`, 0x030004EC <- `add r1,r1,#(0x100-w)`, 0x030004F0 <- `add r2,r2,#(0x1E0-w)*2`

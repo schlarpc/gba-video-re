@@ -11,7 +11,9 @@ Tools (all in `./container/`):
 - `emu_audio.py` -- runs IWRAM `0x03006a14` (the player's AFrame decoder) in Unicorn and diffs it against `vxaudio.py`.
 - `vxvwalk.py` -- parse-only walker of the video macroblock grammar -> exact per-frame bit boundaries.
 - `armdis.py` -- capstone helper with the EWRAM/IWRAM image mappings below.
-- Outputs in `container/out/`: `frame_bits.json` (37838 frame start bits + per-frame QP field),
+- `vxcart.py` -- finds the player's RAM images through the loader's program table and lists the VX++ streams in a ROM.
+- Every tool takes `--stream OFF|IDX` (the header offset, or an index into the stream list); default = first stream.
+- Outputs in `container/out/`: `frame_bits_<H>_<tag>.json` (per stream: nframes+1 frame start bits + per-frame QP field),
   `extract/` (`video.bin`, `audio.bin`, `audio_codebook.bin`, `segments/seg_NNN.vxv`, `segments.csv`,
   `index.csv`, `frames/NNNNN.vxv` + `frames/NNNNN.aud` for all 37837 frames),
   `shrek_audio_16k.wav` (whole movie, 16-bit 16384 Hz), `shrek_first60s_hw8.wav` (exact 8-bit 65536 Hz FIFO stream).
@@ -160,7 +162,7 @@ Per-frame video sizes: 151..115,302 bits, mean 11,292 bits (1.4 KB/frame, ~79 kb
 ### 5.3 Video segments and frames **(data)**
 195 segments, segment i = bits [seek[i].video_bit, seek[i+1].video_bit), last one ends at bit
 427,274,067 (rest of the region is zero padding up to the 0x200 boundary). Frame f = bits
-[frame_start_bits[f], frame_start_bits[f+1]) from `out/frame_bits.json` / `index.csv`.
+[frame_start_bits[f], frame_start_bits[f+1]) from `out/frame_bits_*.json` / `index.csv`.
 
 ### 5.4 Audio-to-frame mapping **(code)(data)**
 Timer 1 (reload 0xf800, F/64, IRQ) = exactly 128 Hz -> ctx+0xa0 += 1 ("AFrames due").
@@ -171,6 +173,13 @@ until ctx+0xa4 == ctx+0xa0. So AFrame k plays at k/128 s, video frame f at f/7 s
 
 This formula reproduces the AFrame index of all 195 seek entries and the total
 (floor((128*37837+1)/7) = 691,876 = number of AFrames in the stream) **(data)**.
+
+Other movies' encoders were less regular. Some seek points' audio is one AFrame after this
+formula (Shrek 2: 50 of 197, combo Shrek: 153 of 180) or one before it (combo Shark Tale: 26
+of 171). The player does not compute the formula. It restarts both clocks at the seek point.
+`vxdemux.py` therefore maps frames to AFrames from the seek point at or before the frame:
+`a_seek + floor((128 (f - f_seek) + 1) / 7)`. For Shrek this gives the same result as the
+global formula.
 
 ## 6. Audio stream **(code)(emu)(data)**
 
@@ -218,6 +227,28 @@ Hardware-exact quirks vs. the DS decoder (`libavcodec/vx_audio.c` in mobipeg), a
 - No int16 clamp internally; all arithmetic wraps at 32 bits; clamp only at the 8-bit stage.
 `vxaudio.py` models all of this; `emu_audio.py` diffs it against the real ARM routine:
 see section 8 for results.
+
+## 6a. Other VX++ cartridges **(code)(data)(emu)**
+
+The player program is byte-identical on Shrek, Shark Tale and Shrek 2 (Rev 6) and on
+Shrek + Shark Tale (Rev 5). That includes the loader, the program table at 0x8e4, the load
+headers, and the EWRAM and IWRAM images at ROM 0x8a00 and 0xbcc8. The streams use the same
+container. All header table offsets are relative to H. The differences are:
+
+| cart | H | frames | size | segments | chapters | segment QP |
+|---|---|---|---|---|---|---|
+| Shark Tale Rev 6 | 0x20200 | 37697 | 240x160 | 191 | 20 (2 of them one frame after a seek point) | 33..37, plus 2 QP changes inside segments |
+| Shrek 2 Rev 6 | 0x20200 | 38816 | 240x160 | 197 | 20 | 30 |
+| Shrek + Shark Tale #0 (Shrek) | 0x20200 | 34874 | 240x112 | 180 | 20 | 34 |
+| Shrek + Shark Tale #1 (Shark Tale) | 0x1eef800 | 34261 | 240x112 | 171 | 20 | 37 |
+| Shrek + Shark Tale #2 (Shrek credits) | 0x3dd3600 | 595 | 240x160 | 1 | 1 (frame 0); hdr 0x24/0x30/0x34 = 0 | 32 |
+| Shrek + Shark Tale #3 (Shark Tale credits) | 0x3e76a00 | 707 | 240x160 | 1 | 1 (frame 0); hdr 0x24/0x30/0x34 = 0 | 32 |
+
+A 240x112 stream still uses the four fixed 0xF000-byte slots with stride 256. Only rows
+0..111 and chroma rows 0..55 are decoded. The player centres the picture at screen row 24.
+The menu passes the stream to the player as `0x08000000 + H` in 0x0203FFF8, and the player
+stores `0x10000000 + H` in ctx+0x20. On the combo cart, each movie's menu has a "Credits"
+item that plays its 240x160 credits stream.
 
 ## 7. Prior art (and where it was wrong for this ROM)
 - quatric, "The Mobiclip Formats", sec. 8.3: https://gist.github.com/quatric/3e2f0caa5c22a9a8b24d9cf1ffdfe860

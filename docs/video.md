@@ -39,6 +39,10 @@ python3 fuzz.py --cases 2000       # differential fuzz vs the ARM decoder (rando
 
 Decode speed: the whole movie (37837 frames) in 7.6 s on one core.
 
+The same checks (`verify.py --rom ROM --stream S --manifest --seek --seek-frames 1000 --audio`)
+pass for every VX++ stream of the Shark Tale and Shrek 2 Rev 6 carts and the Shrek + Shark Tale
+Rev 5 cart, including the two 240x112 movies. See the table in the README.
+
 ## 1. Bit reader (`bits.h`; IWRAM 0x030007a8, 0x0300076c, 0x0300081c)
 
 - The video elementary stream starts at VX header + 0x38 (ROM 0x20238). It is a sequence of
