@@ -1,0 +1,24 @@
+SPDX-License-Identifier: MPL-2.0
+This patch modifies mGBA (https://github.com/mgba-emu/mgba) and is licensed under mGBA's
+licence, the Mozilla Public License 2.0, not under this repository's MIT licence.
+Adds a synchronous PC-hook callback (retro_bp_cb) to the triage profiling core. Apply with
+'patch -p1' on top of tools/mgba/mgba-prof.patch (nixpkgs mGBA + PC histogram + breakpoints);
+build into tmp/mgba/hydrogen-cb/ (or set HY_MGBA_CORE).
+
+--- a/src/arm/arm.c	2026-11-06 21:07:21.681121087 -0800
++++ b/src/arm/arm.c	2026-11-06 23:31:46.574513299 -0800
+@@ -203,12 +203,13 @@
+ uint64_t retro_prof_iwram[0x2000], retro_prof_ewram[0x10000], retro_prof_rom[0x200000], retro_prof_bios[0x1000], retro_prof_vram[0x6000], retro_prof_other[16];
+ uint64_t retro_prof_thumb[16], retro_prof_arm[16];
+ int retro_prof_on = 1;
+-uint32_t retro_bp_addr[8]; uint32_t retro_bp_regs[8][17]; uint32_t retro_bp_hits[8]; int retro_bp_n = 0; uint32_t retro_bp_log[4096][18]; uint32_t retro_bp_logn = 0;
++uint32_t retro_bp_addr[8]; uint32_t retro_bp_regs[8][17]; uint32_t retro_bp_hits[8]; int retro_bp_n = 0; uint32_t retro_bp_log[4096][18]; uint32_t retro_bp_logn = 0; void (*retro_bp_cb)(int, uint32_t*) = 0;
+ static inline void bp_check(struct ARMCore* cpu, uint32_t pc) {
+ 	for (int i = 0; i < retro_bp_n; i++) if (retro_bp_addr[i] == pc) {
+ 		retro_bp_hits[i]++;
+ 		for (int r = 0; r < 16; r++) retro_bp_regs[i][r] = cpu->gprs[r];
+ 		retro_bp_regs[i][16] = cpu->cpsr.packed;
++		if (retro_bp_cb) { uint32_t R[17]; for (int r = 0; r < 16; r++) R[r] = cpu->gprs[r]; R[16] = cpu->cpsr.packed; retro_bp_cb(i, R); continue; }
+ 		if (retro_bp_logn < 4096) { uint32_t* L = retro_bp_log[retro_bp_logn++]; L[0] = i; for (int r = 0; r < 16; r++) L[1 + r] = cpu->gprs[r]; L[17] = cpu->cpsr.packed; }
+ 	}
+ }
