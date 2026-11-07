@@ -92,6 +92,7 @@ impl TrackDecoder {
             return Err(Error::Invalid(format!("audio block {i} of {}", self.track.nblocks)));
         }
         self.adpcm.seek(self.track.block_offset(i), i as u32);
+        self.adpcm.clear_overrun();
         self.block = i;
         self.in_block = 0;
         Ok(())

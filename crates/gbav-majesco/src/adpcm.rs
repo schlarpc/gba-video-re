@@ -96,6 +96,12 @@ impl<B: AsRef<[u8]>> Adpcm<B> {
         self.block = block_index;
     }
 
+    /// Clear the overrun flag (the C reference keeps it set until re-initialised; a cold start
+    /// through [`crate::audio::TrackDecoder::seek_block`] clears it).
+    pub fn clear_overrun(&mut self) {
+        self.overrun = false;
+    }
+
     /// The reader ran past the end of the buffer.
     pub fn overrun(&self) -> bool {
         self.overrun
