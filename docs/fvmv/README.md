@@ -73,6 +73,15 @@ and compares every frame and every audio block with `verify/fvmv/pokemon<vol>_<s
 before a frame decode (see `tools/fvmv/emu/capture_fvmv.py`). The profiler in
 `tools/fvmv/perf/` needs mGBA's libretro core built with `tools/mgba/mgba-prof.patch`.
 
+### Rust
+
+The Rust crate `gbav-fvmv` decodes FVMV video and audio. With your ROMs in `$GBAV_ROMS`:
+
+```sh
+cargo test --release -p gbav-fvmv          # every frame, every audio block (synthesis and PCM) and all 994 seek points from a cold start; with `GBAV_CDIFF=1` also a differential fuzz against `reference/fvmv`
+cargo run --release -p gbav-cli -- verify "$GBAV_ROMS"   # every cart of every family
+```
+
 ## Open issues
 
 - **Vol 3 last-frame audio.** On Vol 3 the player clears its PCM ring in the same video

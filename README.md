@@ -49,6 +49,19 @@ unicorn from a savestate, as an oracle for differential fuzzing of the reference
 The few counts that are not all-equal are explained in Table 1 of [docs/carts.md](docs/carts.md);
 none of them is a decoder error.
 
+The Rust decoders reproduce all of it. `gbav verify` over the 46 available carts checks every
+frame and every audio unit of the 179 streams against `verify/` in about 50 seconds on 8 cores:
+
+| family | carts | streams | frames | audio units (per-block manifests) | audio segments only |
+|---|---|---|---|---|---|
+| VX | 7 | 10 | 299,137 / 299,137 | 5,055,621 / 5,055,621 + 413,518 known cart-side (Shrek 2 Rev 5) | 1,323 / 1,323 |
+| FVMV | 4 | 8 | 80,972 / 80,972 | 648,427 / 648,427 | 342 / 342 |
+| Hydrogen | 14 | 65 | 430,822 / 430,822 | 572,820 / 572,820 calls | 1,242 / 1,242 |
+| ADS | 21 | 96 | 621,421 / 621,421 + 41 known cart-side (Noah proto) | 51,791 / 51,791 | 1,773 / 1,773 |
+
+`cargo test --release` runs the same checks per crate, plus cold starts at every seek point, and
+with `GBAV_CDIFF=1` differential fuzzing against the C reference decoders in `reference/`.
+
 ## Repository layout
 
 | path | contents |

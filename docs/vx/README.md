@@ -81,6 +81,15 @@ captures: 3,530 random valid VX++ frames and the VXGB residual paths agree betwe
 the cartridge's ARM code under unicorn, and the ARM audio routine matches the Python audio
 decoder on every AFrame of every stream.
 
+### Rust
+
+The Rust crate `gbav-vx` decodes VX++ and VXGB video and VX audio. With your ROMs in `$GBAV_ROMS`:
+
+```sh
+cargo test --release -p gbav-vx          # every frame (YUV slot and screen), every played audio block, every seek point from a cold start and every frame start bit against the walker; with `GBAV_CDIFF=1` also a differential fuzz against `reference/vx/decoder` (the corpus generator needs python3 with unicorn and capstone)
+cargo run --release -p gbav-cli -- verify "$GBAV_ROMS"   # every cart of every family
+```
+
 ## Open issues
 
 - **Shrek 2 (Rev 5) loses an audio refill request** in mGBA at AFrame 296,039 (VX frame 16,191,

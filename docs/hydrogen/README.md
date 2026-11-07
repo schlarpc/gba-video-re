@@ -63,7 +63,8 @@ Related carts documented elsewhere:
 | VQ fuzz (unpredict + converter + blit, all 8 modes, all 11 brightness levels) | 600/600 (All Grown Up), 300/300 (Yu-Gi-Oh!) |
 | perf cross-check: unicorn GBATEK cost model / instrumented mGBA | blit 0.982-0.989, Inflate 0.985-0.994, ADPCM about 0.99-1.00 |
 
-Manifests: `verify/hydrogen/<short>_<stream>.{frame,audio}_md5.csv.gz` (124 files, hashes only).
+Manifests: `verify/hydrogen/<short>_<stream>.frame_md5.csv.gz`, `.audio_seg_md5.csv.gz` and,
+where present, the per-call `.audio_md5.csv.gz` (hashes only; see the [README](../../README.md#manifests)).
 
 ### Format in brief
 
@@ -123,6 +124,15 @@ The emulator tools need patched mGBA libretro cores, built locally from the nixp
 synchronous PC-hook callback, `tools/hydrogen/emu/mgba-cb-on-triage-prof.patch`; or set
 `HY_MGBA_CORE`) and `tmp/mgba/perf/` (the Shrek perf patch, `tools/vx/perf/patch/mgba-perf.patch`,
 unchanged; or set `HY_PERF_CORE`). The patches are MPL-2.0, like mGBA.
+
+### Rust
+
+The Rust crate `gbav-hydrogen` decodes the Hydrogen container and Inflate, on the shared Majesco VQ and ADPCM crate `gbav-majesco`. With your ROMs in `$GBAV_ROMS`:
+
+```sh
+cargo test --release -p gbav-hydrogen          # every frame, every audio call, every segment from a cold start; with `GBAV_CDIFF=1` also the Inflate, VQ and ADPCM differential tests against `reference/`
+cargo run --release -p gbav-cli -- verify "$GBAV_ROMS"   # every cart of every family
+```
 
 ## Open issues
 

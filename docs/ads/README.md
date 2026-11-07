@@ -70,8 +70,9 @@ reference/ads/adsdec ROM --list
 reference/ads/adsdec ROM --stream movie_1 --count 100 --out out/
 ```
 
-The manifests are in `verify/ads/`: `<cart>_<stream>.frame_md5.csv.gz` and
-`.audio_md5.csv.gz` (hashes only), plus `<cart>.capture.json` with the stream boundaries of each
+The manifests are in `verify/ads/`: `<cart>_<stream>.frame_md5.csv.gz`,
+`.audio_seg_md5.csv.gz` and, where present, the per-block `.audio_md5.csv.gz` (hashes only; see
+the [README](../../README.md#manifests)), plus `<cart>.capture.json` with the stream boundaries of each
 capture. Captures were made with `tools/ads/emu/capture.py` on an mGBA libretro core patched
 with `tools/ads/emu/mgba-hooks.patch`. That patch modifies mGBA and is under mGBA's licence,
 MPL-2.0; build the core into `tmp/mgba/ads-hooks/` or point `ADS_CORE` at it.
@@ -81,6 +82,15 @@ dump of *Disney Channel Collection - Volume 2 (Rev 5)* is the 32 MiB that holds 
 capture tools give mGBA a copy padded with 0xFF to 64 MiB (`tools/ads/carts.py`,
 `emu_rom_path`, written under `tmp/ads/emu/roms/`); with the plain dump the cart shows a white
 screen. The decoders read the plain dump.
+
+### Rust
+
+The Rust crate `gbav-ads` decodes the SFCD/.mmstr container and LZMA, on `gbav-majesco`. With your ROMs in `$GBAV_ROMS`:
+
+```sh
+cargo test --release -p gbav-ads          # every frame (the 41 Noah proto stale-codebook frames as known cart-side differences, also reproduced with the old codebook), every audio block, every chunk from a cold start; with `GBAV_CDIFF=1` also the LZMA differential test against `reference/ads`
+cargo run --release -p gbav-cli -- verify "$GBAV_ROMS"   # every cart of every family
+```
 
 ## Open issues
 

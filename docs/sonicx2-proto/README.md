@@ -62,6 +62,15 @@ sx2dec options: `--list`, `--stream N`, `--start-frame F`, `--count C`, `--out F
 core (`tools/mgba/mgba-prof.patch`, MPL-2.0), built into `tmp/mgba/prof/` or given by
 `GBAV_MGBA_PROF_CORE`.
 
+### Rust
+
+The Rust crate `gbav-hydrogen` decodes this cart, as one of the Hydrogen carts (the player's missing output clamp and row-159 behaviour are detected from the ROM). With your ROMs in `$GBAV_ROMS`:
+
+```sh
+cargo test --release -p gbav-hydrogen          # its 3 streams with the other Hydrogen carts
+cargo run --release -p gbav-cli -- verify "$GBAV_ROMS"   # every cart of every family
+```
+
 ## Open issues
 
 1. **Integration (Rust port):** the shared Majesco ADPCM decoder needs a no-clip (wrap) option so
