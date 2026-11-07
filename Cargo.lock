@@ -52,3 +52,6 @@ version = "0.1.0"
 [[package]]
 name = "gbav-vx"
 version = "0.1.0"
+dependencies = [
+ "gbav-common",
+]
