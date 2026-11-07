@@ -21,6 +21,9 @@ version = "0.1.0"
 [[package]]
 name = "gbav-fvmv"
 version = "0.1.0"
+dependencies = [
+ "gbav-common",
+]
 
 [[package]]
 name = "gbav-hydrogen"
