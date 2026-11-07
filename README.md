@@ -97,7 +97,8 @@ Without `GBAV_ROMS` the ROM-based tests skip themselves. The C reference decoder
 Every frame manifest has one md5 per frame. Audio comes in two forms. The per-block manifests
 (`*.audio_md5.csv.gz`) hash every audio block (VX: every 512-byte AFrame output) or every
 player call (Hydrogen); for the VX movies alone they are 120 MB of incompressible hashes, so
-they are in a separate last commit and may be left out of a published copy. The segment manifests (`*.audio_seg_md5.csv.gz`) are
+they are not published here. Rebuild them locally with the capture tools in `tools/<family>/`
+(see each family's README) and drop them into `verify/<family>/`. The segment manifests (`*.audio_seg_md5.csv.gz`) are
 always present: each row hashes about 30 seconds of the same output and names the blocks it
 covers. They were made with `gbav make-segments` from the per-block manifests and contain only
 blocks that matched them. Verification (`cargo test`, `gbav verify`) uses the per-block manifests

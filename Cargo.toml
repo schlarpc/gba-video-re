@@ -15,7 +15,7 @@ members = [
 [workspace.package]
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/schlarpc/gba-video-vx"
+repository = "https://github.com/schlarpc/gba-video-re"
 
 [profile.release]
 debug = 1
