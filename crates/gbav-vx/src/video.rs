@@ -37,7 +37,11 @@ impl Layout {
     pub fn of(v: Variant) -> Layout {
         match v {
             // player_run 0x03006df4: slots at 0x020032c8, MV array 0x0203f2c8
-            Variant::VxPP => Layout { slot0: 0x32C8, mvstart: 0x3F314, zero: &[(0x3F2C8, 0x318)] },
+            Variant::VxPP => Layout {
+                slot0: 0x32C8,
+                mvstart: 0x3F314,
+                zero: &[(0x3F2C8, 0x318)],
+            },
             // Rev 5 player: slots 0x02002b48, nnz grids 0x0203eb48 / 0x0203f5b1, MV array 0x0203f866
             Variant::Vxgb => Layout {
                 slot0: 0x2B48,
@@ -110,7 +114,10 @@ fn median3(a: i32, b: i32, c: i32) -> i32 {
     if mx < c {
         mx = c;
     }
-    a.wrapping_add(b).wrapping_add(c).wrapping_sub(mn).wrapping_sub(mx)
+    a.wrapping_add(b)
+        .wrapping_add(c)
+        .wrapping_sub(mn)
+        .wrapping_sub(mx)
 }
 
 #[inline(always)]
@@ -171,7 +178,8 @@ impl Core {
         if self.tables.variant == Variant::Vxgb {
             let deq = &self.tables.vxgb.as_ref().unwrap().deq;
             for i in 0..8 {
-                self.gscale[i] = (deq[(qp % 6) as usize * 8 + i] as u32).wrapping_shl(qp / 6) as i32;
+                self.gscale[i] =
+                    (deq[(qp % 6) as usize * 8 + i] as u32).wrapping_shl(qp / 6) as i32;
             }
         }
         self.bits = BitState::start(stream);
@@ -220,7 +228,11 @@ impl Core {
     fn note_mv(&mut self, w: u32, h: u32, mx: i32, my: i32) {
         let bx = ((self.yoff & 0xff) as i32).wrapping_add(mx);
         let by = ((self.yoff >> 8) as i32).wrapping_add(my);
-        if bx < 0 || by < 0 || bx.wrapping_add(w as i32) > self.width as i32 || by.wrapping_add(h as i32) > self.height as i32 {
+        if bx < 0
+            || by < 0
+            || bx.wrapping_add(w as i32) > self.width as i32
+            || by.wrapping_add(h as i32) > self.height as i32
+        {
             self.stats.oob += 1;
         }
     }
@@ -235,12 +247,18 @@ impl Core {
         self.wr16(self.mvp, lo);
         self.note_mv(w, h, mx, my);
         for y in 0..h {
-            let s = ry.wrapping_add(self.yoff).wrapping_add(lo).wrapping_add(y * 256);
+            let s = ry
+                .wrapping_add(self.yoff)
+                .wrapping_add(lo)
+                .wrapping_add(y * 256);
             let t = self.outy + self.yoff + y * 256;
             self.copy_row(s, t, w);
         }
         for y in 0..h / 2 {
-            let s = rc.wrapping_add(self.uvoff).wrapping_add(co).wrapping_add(y * 256);
+            let s = rc
+                .wrapping_add(self.uvoff)
+                .wrapping_add(co)
+                .wrapping_add(y * 256);
             let t = self.outc + self.uvoff + y * 256;
             self.copy_row(s, t, w);
         }
@@ -258,7 +276,10 @@ impl Core {
         self.note_mv(w, h, mx, my);
         let (dy2, du2, dv2) = (dy.wrapping_mul(2), du.wrapping_mul(2), dv.wrapping_mul(2));
         for y in 0..h {
-            let s = ry.wrapping_add(self.yoff).wrapping_add(lo).wrapping_add(y * 256);
+            let s = ry
+                .wrapping_add(self.yoff)
+                .wrapping_add(lo)
+                .wrapping_add(y * 256);
             let t = self.outy + self.yoff + y * 256;
             for x in 0..w {
                 let v = clip255((self.rd8(s.wrapping_add(x)) as i32).wrapping_add(dy2));
@@ -266,7 +287,10 @@ impl Core {
             }
         }
         for y in 0..h / 2 {
-            let s = rc.wrapping_add(self.uvoff).wrapping_add(co).wrapping_add(y * 256);
+            let s = rc
+                .wrapping_add(self.uvoff)
+                .wrapping_add(co)
+                .wrapping_add(y * 256);
             let t = self.outc + self.uvoff + y * 256;
             for x in (0..w).step_by(2) {
                 let u = clip255((self.rd8(s.wrapping_add(x)) as i32).wrapping_add(du2));
@@ -293,7 +317,8 @@ impl Core {
                 _ => self.rd8(b.wrapping_add(o.b as i32 as u32)) as i32,
             };
             let r = if o.kind == 1 {
-                let r = (a.wrapping_add(c).wrapping_add(1) >> 1).wrapping_add(bs.se().wrapping_mul(2));
+                let r =
+                    (a.wrapping_add(c).wrapping_add(1) >> 1).wrapping_add(bs.se().wrapping_mul(2));
                 if !(0..=255).contains(&r) {
                     self.stats.fill_ovf += 1;
                 }
@@ -339,9 +364,9 @@ impl Core {
             2 => {
                 // DC 0x03000a54; availability from the frame position only
                 const LG: [u32; 5] = [0, 2, 3, 0, 4];
-                let dc: u32;
-                if off == 0 {
-                    dc = 0x80;
+
+                let dc: u32 = if off == 0 {
+                    0x80
                 } else {
                     let (mut t, mut l) = (0u32, 0u32);
                     if off & 0xff00 != 0 {
@@ -356,14 +381,14 @@ impl Core {
                         }
                         l = (l + (h >> 1)) >> LG[(h >> 2) as usize];
                     }
-                    dc = if off & 0xff == 0 {
+                    if off & 0xff == 0 {
                         t
                     } else if off & 0xff00 == 0 {
                         l
                     } else {
                         (t + l + 1) >> 1
-                    };
-                }
+                    }
+                };
                 for y in 0..h {
                     for x in 0..w {
                         self.wr8(b + y * 256 + x, dc as u8);
@@ -456,8 +481,14 @@ impl Core {
                 // plane 0x03000e44
                 let tr = (b + w).wrapping_sub(256);
                 let bl = b + ch * 256;
-                let cu = (self.rd8(tr.wrapping_sub(2)) as i32 + self.rd8(bl.wrapping_sub(258)) as i32 + 1) >> 1;
-                let cv = (self.rd8(tr.wrapping_sub(1)) as i32 + self.rd8(bl.wrapping_sub(257)) as i32 + 1) >> 1;
+                let cu = (self.rd8(tr.wrapping_sub(2)) as i32
+                    + self.rd8(bl.wrapping_sub(258)) as i32
+                    + 1)
+                    >> 1;
+                let cv = (self.rd8(tr.wrapping_sub(1)) as i32
+                    + self.rd8(bl.wrapping_sub(257)) as i32
+                    + 1)
+                    >> 1;
                 let br = (b + w + ch * 256).wrapping_sub(258);
                 self.wr8(br, cu as u8);
                 self.wr8(br.wrapping_add(1), cv as u8);
@@ -636,16 +667,20 @@ impl Core {
                 }
                 let flag = bs.buf >> 31;
                 bs.buf <<= 1;
-                let mode;
-                if flag != 0 {
+
+                let mode = if flag != 0 {
                     bs.cnt -= 1;
-                    mode = pred;
+                    pred
                 } else {
                     let rem = bs.buf >> 29;
                     bs.buf <<= 3;
                     bs.cnt -= 4;
-                    mode = if rem >= pred { rem + 1 } else { rem };
-                }
+                    if rem >= pred {
+                        rem + 1
+                    } else {
+                        rem
+                    }
+                };
                 ctx[ci] = mode as u8;
                 let off = self.yoff + by * 4 * 256 + bx * 4;
                 self.i4x4(mode, self.outy + off, off);
@@ -775,7 +810,19 @@ impl Core {
             Variant::Vxgb => {
                 if res {
                     let t = self.tables.vxgb.as_ref().unwrap();
-                    if vxgb_residual(bs, t, &self.gscale, &mut self.ew[..], y, uv, self.nzy, self.nzc, w, h) < 0 {
+                    if vxgb_residual(
+                        bs,
+                        t,
+                        &self.gscale,
+                        &mut self.ew[..],
+                        y,
+                        uv,
+                        self.nzy,
+                        self.nzc,
+                        w,
+                        h,
+                    ) < 0
+                    {
                         self.stats.err += 1;
                     }
                 } else if big && !(m == 1 && h == 16) && !(m == 2 && w == 16) {

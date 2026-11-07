@@ -37,13 +37,21 @@ impl BitState {
     pub fn at(s: &[u8], bitoff: u32) -> BitState {
         let h = (bitoff >> 4) as usize * 2;
         let skip = bitoff & 15;
-        BitState { buf: ((hw(s, h) << 16) | hw(s, h + 2)) << skip, cnt: 16 - skip as i32, pos: h + 4 }
+        BitState {
+            buf: ((hw(s, h) << 16) | hw(s, h + 2)) << skip,
+            cnt: 16 - skip as i32,
+            pos: h + 4,
+        }
     }
 
     /// The player's power-on init (player_run, no seek): buf = hw[0] << 16, cnt = 0, pos -> hw[1].
     /// Same bit position as `at(s, 0)` but a different refill phase.
     pub fn start(s: &[u8]) -> BitState {
-        BitState { buf: hw(s, 0) << 16, cnt: 0, pos: 2 }
+        BitState {
+            buf: hw(s, 0) << 16,
+            cnt: 0,
+            pos: 2,
+        }
     }
 
     /// Bit position from the start of the stream.
@@ -55,12 +63,21 @@ impl BitState {
 impl<'a> Bits<'a> {
     #[inline(always)]
     pub fn new(s: &'a [u8], st: BitState) -> Self {
-        Bits { s, pos: st.pos, buf: st.buf, cnt: st.cnt }
+        Bits {
+            s,
+            pos: st.pos,
+            buf: st.buf,
+            cnt: st.cnt,
+        }
     }
 
     #[inline(always)]
     pub fn state(&self) -> BitState {
-        BitState { pos: self.pos, buf: self.buf, cnt: self.cnt }
+        BitState {
+            pos: self.pos,
+            buf: self.buf,
+            cnt: self.cnt,
+        }
     }
 
     pub fn bitpos(&self) -> u32 {

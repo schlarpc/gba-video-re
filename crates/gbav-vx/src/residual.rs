@@ -24,7 +24,14 @@ fn add_px(ew: &mut [u8], a: u32, d: i32) {
 
 /// One 4x4 block. plane 0 = luma, 1 = U (bytes 0,2,4,6), 2 = V (bytes 1,3,5,7); stride 256.
 /// Returns <0 for a position the ARM cannot survive, 1 for a harmless overrun, else 0.
-fn block4x4(bs: &mut Bits, t: &VxppTables, s: &[i32; 3], ew: &mut [u8], dst: u32, plane: u32) -> i32 {
+fn block4x4(
+    bs: &mut Bits,
+    t: &VxppTables,
+    s: &[i32; 3],
+    ew: &mut [u8],
+    dst: u32,
+    plane: u32,
+) -> i32 {
     let mut c = [0i32; 32]; // scan-order levels; 16..31 = harmless overflow (ARM temp buf)
     let (mut pos, mut err) = (0usize, 0);
     let mut lastpos: i32;
@@ -128,9 +135,18 @@ fn block4x4(bs: &mut Bits, t: &VxppTables, s: &[i32; 3], ew: &mut [u8], dst: u32
         let e1 = r0.wrapping_sub(r2);
         let e2 = ((r1 as i32 >> 1) as u32).wrapping_sub(r3);
         let e3 = r1.wrapping_add((r3 as i32 >> 1) as u32);
-        let o = [e0.wrapping_add(e3), e1.wrapping_add(e2), e1.wrapping_sub(e2), e0.wrapping_sub(e3)];
+        let o = [
+            e0.wrapping_add(e3),
+            e1.wrapping_add(e2),
+            e1.wrapping_sub(e2),
+            e0.wrapping_sub(e3),
+        ];
         for x in 0..4u32 {
-            add_px(ew, dst + y * 256 + x * step + off, o[x as usize] as i32 >> 6);
+            add_px(
+                ew,
+                dst + y * 256 + x * step + off,
+                o[x as usize] as i32 >> 6,
+            );
         }
     }
     err
@@ -140,7 +156,16 @@ fn block4x4(bs: &mut Bits, t: &VxppTables, s: &[i32; 3], ew: &mut [u8], dst: u32
 /// EWRAM offsets `y` (luma) and `uv` (interleaved chroma). Walks 8x8 units in raster order;
 /// per unit one ue(v) -> CBP (bits 0..3 luma 4x4, bit 4 U, bit 5 V).
 /// Returns <0 for a stream the ARM cannot survive (decoding of the block stops there).
-pub fn vx_residual(bs: &mut Bits, t: &VxppTables, s: &[i32; 3], ew: &mut [u8], y: u32, uv: u32, w: u32, h: u32) -> i32 {
+pub fn vx_residual(
+    bs: &mut Bits,
+    t: &VxppTables,
+    s: &[i32; 3],
+    ew: &mut [u8],
+    y: u32,
+    uv: u32,
+    w: u32,
+    h: u32,
+) -> i32 {
     let mut err = 0;
     for by in (0..h).step_by(8) {
         for bx in (0..w).step_by(8) {
@@ -152,7 +177,14 @@ pub fn vx_residual(bs: &mut Bits, t: &VxppTables, s: &[i32; 3], ew: &mut [u8], y
             }
             let cbp = t.cbp[idx as usize];
             let mut r = 0;
-            let blocks = [(0x01, yy, 0), (0x02, yy + 4, 0), (0x04, yy + 4 * 256, 0), (0x08, yy + 4 * 256 + 4, 0), (0x10, uu, 1), (0x20, uu, 2)];
+            let blocks = [
+                (0x01, yy, 0),
+                (0x02, yy + 4, 0),
+                (0x04, yy + 4 * 256, 0),
+                (0x08, yy + 4 * 256 + 4, 0),
+                (0x10, uu, 1),
+                (0x20, uu, 2),
+            ];
             for (bit, a, p) in blocks {
                 if cbp & bit != 0 {
                     r |= block4x4(bs, t, s, ew, a, p);

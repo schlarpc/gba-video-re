@@ -36,7 +36,16 @@ fn vlc_tab(bs: &mut Bits, t: &(u8, Vec<u8>)) -> u32 {
 /// 0x030062e0: one 4x4 block at EWRAM offset `dst` (step 1 = luma, 2 = U/V). `nc` = context;
 /// the TotalCoeff is written to EWRAM `nz`. Returns 0, or <0 for a code the ARM cannot
 /// survive (out-of-range writes / endless loops).
-fn coef4x4(bs: &mut Bits, t: &VxgbTables, s: &[i32; 8], ew: &mut [u8], dst: u32, step: u32, nc: u32, nz: u32) -> i32 {
+fn coef4x4(
+    bs: &mut Bits,
+    t: &VxgbTables,
+    s: &[i32; 8],
+    ew: &mut [u8],
+    dst: u32,
+    step: u32,
+    nc: u32,
+    nz: u32,
+) -> i32 {
     let mut c = [0i32; 16];
     let mut p = 16usize; // write pointer: c[--p], highest scan position first
     let (mut t1, mut tc): (i32, i32);
@@ -72,7 +81,10 @@ fn coef4x4(bs: &mut Bits, t: &VxgbTables, s: &[i32; 8], ew: &mut [u8], dst: u32,
         if sym < 0 {
             return -3; // no codeword: the ARM reads lengths before the table
         }
-        let Some(&len) = t.ct_len.get(t.ct_lenoff[nc as usize] as usize + sym as usize) else {
+        let Some(&len) = t
+            .ct_len
+            .get(t.ct_lenoff[nc as usize] as usize + sym as usize)
+        else {
             return -3;
         };
         bs.skip(len as u32);
@@ -228,11 +240,21 @@ fn coef4x4(bs: &mut Bits, t: &VxgbTables, s: &[i32; 8], ew: &mut [u8], dst: u32,
         let e1 = r0.wrapping_sub(r2);
         let e2 = ((r1 as i32 >> 1) as u32).wrapping_sub(r3);
         let e3 = r1.wrapping_add((r3 as i32 >> 1) as u32);
-        let o = [e0.wrapping_add(e3), e1.wrapping_add(e2), e1.wrapping_sub(e2), e0.wrapping_sub(e3)];
+        let o = [
+            e0.wrapping_add(e3),
+            e1.wrapping_add(e2),
+            e1.wrapping_sub(e2),
+            e0.wrapping_sub(e3),
+        ];
         for x in 0..4u32 {
             let a = dst + y * 256 + x * step;
             let q = rd(ew, a) as i32;
-            wr(ew, a, q.wrapping_add(o[x as usize].wrapping_add(32) as i32 >> 6).clamp(0, 255) as u8);
+            wr(
+                ew,
+                a,
+                q.wrapping_add(o[x as usize].wrapping_add(32) as i32 >> 6)
+                    .clamp(0, 255) as u8,
+            );
         }
     }
     0
@@ -247,7 +269,18 @@ fn nc_of(ew: &[u8], nz: u32, stride: u32) -> u32 {
 /// are the block's entries in the persistent luma (stride 0x41) / chroma (stride 0x21)
 /// nonzero-count grids, read (left and top neighbours) and written.
 #[allow(clippy::too_many_arguments)]
-pub fn vxgb_residual(bs: &mut Bits, t: &VxgbTables, s: &[i32; 8], ew: &mut [u8], y: u32, uv: u32, nzy: u32, nzc: u32, w: u32, h: u32) -> i32 {
+pub fn vxgb_residual(
+    bs: &mut Bits,
+    t: &VxgbTables,
+    s: &[i32; 8],
+    ew: &mut [u8],
+    y: u32,
+    uv: u32,
+    nzy: u32,
+    nzc: u32,
+    w: u32,
+    h: u32,
+) -> i32 {
     for by in (0..h).step_by(8) {
         for bx in (0..w).step_by(8) {
             let yy = y + by * 256 + bx;

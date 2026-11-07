@@ -17,6 +17,9 @@
 //! * Audio blocks = one AFrame's 512 bytes of signed 8-bit 65536 Hz output; native PCM =
 //!   its 128 samples at 16384 Hz.
 
+// The decoder mirrors the C reference loop for loop; index loops and wide signatures are kept.
+#![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+
 pub mod audio;
 pub mod bits;
 pub mod blit;
@@ -92,7 +95,9 @@ impl Codec for Vx {
 
     fn audio(rom: &[u8], stream: &str) -> Result<Self::Audio> {
         let h = pick_stream(rom, stream)?;
-        let r = h.audio_range(rom.len()).ok_or_else(|| Error::Invalid(format!("stream {} has no audio", h.id())))?;
+        let r = h
+            .audio_range(rom.len())
+            .ok_or_else(|| Error::Invalid(format!("stream {} has no audio", h.id())))?;
         let len = r.len();
         VxAudio::with_data(rom, h, rom[r].to_vec(), 0..len)
     }
@@ -119,7 +124,13 @@ impl VxFrame {
     }
     /// Y plane (`width x height`, stride 256 in the slot) as a packed buffer.
     pub fn luma(&self) -> Vec<u8> {
-        (0..self.height as usize).flat_map(|y| self.slot[y * 256..y * 256 + self.width as usize].iter().copied()).collect()
+        (0..self.height as usize)
+            .flat_map(|y| {
+                self.slot[y * 256..y * 256 + self.width as usize]
+                    .iter()
+                    .copied()
+            })
+            .collect()
     }
     /// U and V planes (`width/2 x height/2` each), de-interleaved.
     pub fn chroma(&self) -> (Vec<u8>, Vec<u8>) {
@@ -179,10 +190,31 @@ impl<S: AsRef<[u8]>> VxVideo<S> {
         Self::build(data, h, range, tables, seek)
     }
 
-    fn build(data: S, h: StreamHeader, range: Range<usize>, tables: Tables, seek: Vec<SeekEntry>) -> Result<Self> {
+    fn build(
+        data: S,
+        h: StreamHeader,
+        range: Range<usize>,
+        tables: Tables,
+        seek: Vec<SeekEntry>,
+    ) -> Result<Self> {
         let lut = Arc::new(BlitLut::new(&tables.iwram_lo, h.width, h.height));
-        let core = Core::new(tables, h.width, h.height, h.qp, &data.as_ref()[range.clone()]);
-        Ok(VxVideo { data, range, header: h, seek, core, lut, next: 0, strict: true })
+        let core = Core::new(
+            tables,
+            h.width,
+            h.height,
+            h.qp,
+            &data.as_ref()[range.clone()],
+        );
+        Ok(VxVideo {
+            data,
+            range,
+            header: h,
+            seek,
+            core,
+            lut,
+            next: 0,
+            strict: true,
+        })
     }
 
     pub fn header(&self) -> &StreamHeader {
@@ -226,7 +258,10 @@ impl<S: AsRef<[u8]>> VxVideo<S> {
     /// returning frames) up to `frame`; like `vxdec --start-frame`.
     pub fn seek_to(&mut self, frame: u32) -> Result<()> {
         if frame >= self.header.frames {
-            return Err(Error::Invalid(format!("frame {frame} >= {}", self.header.frames)));
+            return Err(Error::Invalid(format!(
+                "frame {frame} >= {}",
+                self.header.frames
+            )));
         }
         let e = self
             .seek
@@ -234,7 +269,11 @@ impl<S: AsRef<[u8]>> VxVideo<S> {
             .take_while(|e| e.frame <= frame && e.frame < self.header.frames)
             .last()
             .copied()
-            .unwrap_or(SeekEntry { frame: 0, video_bit: 0, audio_byte: 0 });
+            .unwrap_or(SeekEntry {
+                frame: 0,
+                video_bit: 0,
+                audio_byte: 0,
+            });
         self.cold_start(e);
         while self.next < frame {
             self.decode_next()?;
@@ -269,7 +308,8 @@ impl<S: AsRef<[u8]>> VxVideo<S> {
 
     /// BGR555 picture of the frame just decoded.
     pub fn bgr555_into(&self, out: &mut [u16]) {
-        self.lut.blit(self.slot(), out, self.header.width, self.header.height);
+        self.lut
+            .blit(self.slot(), out, self.header.width, self.header.height);
     }
 
     /// The blit table for this stream's size.
@@ -331,7 +371,9 @@ impl<S: AsRef<[u8]>> VxAudio<S> {
     pub fn open(rom: S, stream: &str) -> Result<Self> {
         let r = rom.as_ref();
         let h = pick_stream(r, stream)?;
-        let range = h.audio_range(r.len()).ok_or_else(|| Error::Invalid(format!("stream {} has no audio", h.id())))?;
+        let range = h
+            .audio_range(r.len())
+            .ok_or_else(|| Error::Invalid(format!("stream {} has no audio", h.id())))?;
         let seek = h.seek_table(r);
         Self::build(rom, &h, range, seek)
     }
@@ -412,7 +454,11 @@ impl<S: AsRef<[u8]>> VxAudio<S> {
 impl<S: AsRef<[u8]>> AudioDecoder for VxAudio<S> {
     fn next_block(&mut self) -> Result<Option<Vec<u8>>> {
         let mut out = [0u8; OUT_BYTES];
-        Ok(if self.next_into(&mut out) { Some(out.to_vec()) } else { None })
+        Ok(if self.next_into(&mut out) {
+            Some(out.to_vec())
+        } else {
+            None
+        })
     }
     fn last_pcm(&self) -> &[i16] {
         &self.pcm

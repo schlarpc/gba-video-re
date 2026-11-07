@@ -94,7 +94,13 @@ impl Tables {
         }
         let slot0 = crate::video::Layout::of(variant).slot0 as usize;
         let ewram_image = rom[l.ewram.0..l.ewram.0 + l.ewram.1.min(slot0)].to_vec();
-        let mut t = Tables { variant, iwram_lo, ewram_image, vxpp: None, vxgb: None };
+        let mut t = Tables {
+            variant,
+            iwram_lo,
+            ewram_image,
+            vxpp: None,
+            vxgb: None,
+        };
         match variant {
             Variant::VxPP => {
                 let lut = l.ew(rom, 0x0200_10e4, 8192)?;
@@ -129,7 +135,9 @@ impl Tables {
                 let lo = l.iw(rom, 0x0300_6128, 8)?;
                 let mut ct_lenoff = [0u8; 8];
                 for (d, s) in ct_lenoff.iter_mut().zip(lo) {
-                    *d = s.checked_sub(16).ok_or_else(|| Error::Format("bad coeff_token length table".into()))?;
+                    *d = s
+                        .checked_sub(16)
+                        .ok_or_else(|| Error::Format("bad coeff_token length table".into()))?;
                 }
                 let tree = l.iw(rom, 0x0300_79c0, 784)?;
                 let mut ct_tree = [0i8; 784];

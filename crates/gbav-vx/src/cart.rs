@@ -66,7 +66,9 @@ impl PlayerLayout {
         let bad = || Error::Format("cannot parse the player program table / load header".into());
         let mut prog = PROG_BASE;
         for i in 0..PLAYER_PROG {
-            prog = prog.checked_add(le32(rom, PROG_TABLE + 4 * i).ok_or_else(bad)? as usize).ok_or_else(bad)?;
+            prog = prog
+                .checked_add(le32(rom, PROG_TABLE + 4 * i).ok_or_else(bad)? as usize)
+                .ok_or_else(bad)?;
         }
         let prog_size = le32(rom, PROG_TABLE + 4 * PLAYER_PROG).ok_or_else(bad)? as usize;
         let mut w = [0u32; 17];
@@ -79,7 +81,9 @@ impl PlayerLayout {
             if dst == 0x0200_0000 {
                 ew = Some((prog, s0.checked_sub(0x0200_0000).ok_or_else(bad)? as usize));
             } else if s1 > s0 && dst >> 24 == 3 && iw.is_none() {
-                let off = (prog as u64 + s0 as u64).checked_sub(0x0200_0000).ok_or_else(bad)? as usize;
+                let off = (prog as u64 + s0 as u64)
+                    .checked_sub(0x0200_0000)
+                    .ok_or_else(bad)? as usize;
                 iw = Some((off, (s1 - s0) as usize));
             }
         }
@@ -90,7 +94,14 @@ impl PlayerLayout {
             }
         }
         let md5 = Md5::digest(&rom[prog..prog + prog_size]);
-        Ok(PlayerLayout { prog, prog_size, ewram, iwram, entry: w[16], md5 })
+        Ok(PlayerLayout {
+            prog,
+            prog_size,
+            ewram,
+            iwram,
+            entry: w[16],
+            md5,
+        })
     }
 
     /// The build this player image is (`None` for an unknown build).
@@ -103,7 +114,9 @@ impl PlayerLayout {
     pub fn iw<'r>(&self, rom: &'r [u8], addr: u32, n: usize) -> Result<&'r [u8]> {
         let rel = addr.wrapping_sub(0x0300_0000) as usize;
         if rel + n > self.iwram.1 {
-            return Err(Error::Format(format!("IWRAM 0x{addr:08x}+{n} outside the player image")));
+            return Err(Error::Format(format!(
+                "IWRAM 0x{addr:08x}+{n} outside the player image"
+            )));
         }
         Ok(&rom[self.iwram.0 + rel..self.iwram.0 + rel + n])
     }
@@ -112,7 +125,9 @@ impl PlayerLayout {
     pub fn ew<'r>(&self, rom: &'r [u8], addr: u32, n: usize) -> Result<&'r [u8]> {
         let rel = addr.wrapping_sub(0x0200_0000) as usize;
         if rel + n > self.ewram.1 {
-            return Err(Error::Format(format!("EWRAM 0x{addr:08x}+{n} outside the player image")));
+            return Err(Error::Format(format!(
+                "EWRAM 0x{addr:08x}+{n} outside the player image"
+            )));
         }
         Ok(&rom[self.ewram.0 + rel..self.ewram.0 + rel + n])
     }
@@ -161,7 +176,12 @@ impl StreamHeader {
         let variant = Variant::from_magic(rom.get(off..off + 4)?)?;
         let r = |i: usize| le32(rom, off + 4 * i);
         let (frames, width, height) = (r(1)?, r(2)?, r(3)?);
-        if !(frames > 0 && frames < 1 << 20 && width > 0 && width <= 240 && height > 0 && height <= 160)
+        if !(frames > 0
+            && frames < 1 << 20
+            && width > 0
+            && width <= 240
+            && height > 0
+            && height <= 160)
             || (width | height) & 15 != 0
         {
             return None;
@@ -187,7 +207,11 @@ impl StreamHeader {
     /// to the end of the ROM when there is no audio), as vxdec_main.c computes it.
     pub fn video_range(&self, rom_len: usize) -> std::ops::Range<usize> {
         let start = (self.offset + 0x38).min(rom_len);
-        let end = if self.audio_off != 0 { self.offset + self.audio_off as usize } else { rom_len };
+        let end = if self.audio_off != 0 {
+            self.offset + self.audio_off as usize
+        } else {
+            rom_len
+        };
         start..end.clamp(start, rom_len)
     }
 
@@ -198,7 +222,11 @@ impl StreamHeader {
             return None;
         }
         let s = (self.offset + self.audio_off as usize).min(rom_len);
-        let e = if self.chapter_off > self.audio_off { self.offset + self.chapter_off as usize } else { rom_len };
+        let e = if self.chapter_off > self.audio_off {
+            self.offset + self.chapter_off as usize
+        } else {
+            rom_len
+        };
         Some(s..e.clamp(s, rom_len))
     }
 
@@ -208,14 +236,23 @@ impl StreamHeader {
         (0..self.seek_count as usize)
             .map_while(|i| {
                 let e = base + 16 * i;
-                Some(SeekEntry { frame: le32(rom, e)?, video_bit: le32(rom, e + 4)?, audio_byte: le32(rom, e + 8)? })
+                Some(SeekEntry {
+                    frame: le32(rom, e)?,
+                    video_bit: le32(rom, e + 4)?,
+                    audio_byte: le32(rom, e + 8)?,
+                })
             })
             .collect()
     }
 
     /// Frames a cold decoder can start at (seek entries before the sentinel).
     pub fn seek_points(&self, rom: &[u8]) -> Vec<u32> {
-        let mut v: Vec<u32> = self.seek_table(rom).iter().map(|e| e.frame).filter(|&f| f < self.frames).collect();
+        let mut v: Vec<u32> = self
+            .seek_table(rom)
+            .iter()
+            .map(|e| e.frame)
+            .filter(|&f| f < self.frames)
+            .collect();
         v.dedup();
         v
     }
@@ -229,7 +266,10 @@ impl StreamHeader {
 /// All VX++ / VXGB stream headers in a ROM: the magic on a 0x200 boundary (the cart reads
 /// 512-byte sectors) with plausible dimensions.
 pub fn find_streams(rom: &[u8]) -> Vec<StreamHeader> {
-    (0..rom.len().saturating_sub(0x37)).step_by(0x200).filter_map(|o| StreamHeader::parse(rom, o)).collect()
+    (0..rom.len().saturating_sub(0x37))
+        .step_by(0x200)
+        .filter_map(|o| StreamHeader::parse(rom, o))
+        .collect()
 }
 
 /// Resolve a stream id: a hex header offset ("20200", "0x1eef800") or an index ("1").
@@ -240,7 +280,10 @@ pub fn pick_stream(rom: &[u8], id: &str) -> Result<StreamHeader> {
     }
     let t = id.trim();
     let hexs = t.strip_prefix("0x").unwrap_or(t);
-    if let Some(h) = usize::from_str_radix(hexs, 16).ok().and_then(|o| st.iter().find(|h| h.offset == o)) {
+    if let Some(h) = usize::from_str_radix(hexs, 16)
+        .ok()
+        .and_then(|o| st.iter().find(|h| h.offset == o))
+    {
         return Ok(h.clone());
     }
     if !t.starts_with("0x") {

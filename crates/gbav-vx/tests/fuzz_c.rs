@@ -22,10 +22,16 @@ fn fuzz_against_c() {
         eprintln!("GBAV_VX_FUZZ not set: skipping");
         return;
     };
-    let (Some(pp), Some(gb)) = (common::load_rom(common::cart("shrek-rev6")), common::load_rom(common::cart("shrek-rev5"))) else {
+    let (Some(pp), Some(gb)) = (
+        common::load_rom(common::cart("shrek-rev6")),
+        common::load_rom(common::cart("shrek-rev5")),
+    ) else {
         return;
     };
-    let tabs = [Tables::from_rom(&pp, Variant::VxPP).unwrap(), Tables::from_rom(&gb, Variant::Vxgb).unwrap()];
+    let tabs = [
+        Tables::from_rom(&pp, Variant::VxPP).unwrap(),
+        Tables::from_rom(&gb, Variant::Vxgb).unwrap(),
+    ];
     let (mut total, mut fails, mut with_err) = (0usize, Vec::new(), 0usize);
     for path in corpora.to_str().unwrap().split(',') {
         let b = std::fs::read(path).unwrap();
@@ -67,7 +73,12 @@ fn fuzz_against_c() {
         }
         assert_eq!(p, b.len());
     }
-    println!("fuzz vs C: {} cases ({} raise decoder error flags), {} mismatches", total, with_err, fails.len());
+    println!(
+        "fuzz vs C: {} cases ({} raise decoder error flags), {} mismatches",
+        total,
+        with_err,
+        fails.len()
+    );
     for f in fails.iter().take(10) {
         println!("  {f}");
     }

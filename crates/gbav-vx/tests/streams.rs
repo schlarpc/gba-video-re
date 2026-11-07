@@ -10,6 +10,7 @@
 //!  * audio: the cart's played 512-byte blocks (streams.json aggregate digest and/or per-block
 //!    manifest), and, with GBAV_VX_PCM_REF, every AFrame's 16 kHz samples and 8-bit block
 //!    against container/vxaudio.py.
+//!
 //! Run with `cargo test --release -p gbav-vx --test streams -- --nocapture`.
 
 mod common;
@@ -27,7 +28,13 @@ fn verify_video(rom: &[u8], c: &Cart, off: usize) {
     };
     let mut v = VxVideo::open(rom, &id).unwrap();
     let h = v.header().clone();
-    assert_eq!(man.len(), h.frames as usize, "{}: manifest {} frame count", c.short, mpath.display());
+    assert_eq!(
+        man.len(),
+        h.frames as usize,
+        "{}: manifest {} frame count",
+        c.short,
+        mpath.display()
+    );
     let mut px = vec![0u16; (h.width * h.height) as usize];
     let (mut bad_y, mut bad_v, mut skipped, mut shown) = (Vec::new(), Vec::new(), 0usize, 0usize);
     let mut starts = Vec::with_capacity(h.frames as usize);
@@ -62,8 +69,19 @@ fn verify_video(rom: &[u8], c: &Cart, off: usize) {
     if let Some(fb) = frame_bits(c.short, off) {
         assert_eq!(fb.len(), starts.len() + 1);
         let bad: Vec<usize> = (0..starts.len()).filter(|&i| fb[i] != starts[i]).collect();
-        assert!(bad.is_empty() && fb[starts.len()] == end_bit, "{}:{id}: frame start bits differ from the walker at {:?}", c.short, &bad[..bad.len().min(10)]);
-        println!("{:22} {:>9} frame start bits: {}/{} + end bit equal the grammar walker's", c.short, format!("0x{off:x}"), starts.len(), starts.len());
+        assert!(
+            bad.is_empty() && fb[starts.len()] == end_bit,
+            "{}:{id}: frame start bits differ from the walker at {:?}",
+            c.short,
+            &bad[..bad.len().min(10)]
+        );
+        println!(
+            "{:22} {:>9} frame start bits: {}/{} + end bit equal the grammar walker's",
+            c.short,
+            format!("0x{off:x}"),
+            starts.len(),
+            starts.len()
+        );
     }
     let st = v.stats();
     let seek = v.seek_table().to_vec();
@@ -90,10 +108,23 @@ fn verify_video(rom: &[u8], c: &Cart, off: usize) {
         seek.iter().filter(|e| e.frame < h.frames && e.frame > 0).count(),
         dt.as_secs_f64()
     );
-    assert!(bad_y.is_empty(), "{}:{id}: YUV mismatches at {:?}", c.short, &bad_y[..bad_y.len().min(20)]);
-    assert!(bad_v.is_empty(), "{}:{id}: BGR555 mismatches at {:?}", c.short, &bad_v[..bad_v.len().min(20)]);
+    assert!(
+        bad_y.is_empty(),
+        "{}:{id}: YUV mismatches at {:?}",
+        c.short,
+        &bad_y[..bad_y.len().min(20)]
+    );
+    assert!(
+        bad_v.is_empty(),
+        "{}:{id}: BGR555 mismatches at {:?}",
+        c.short,
+        &bad_v[..bad_v.len().min(20)]
+    );
     assert_eq!(st.err, 0);
-    assert!(bad_seekbits.is_empty(), "seek bit mismatches {bad_seekbits:?}");
+    assert!(
+        bad_seekbits.is_empty(),
+        "seek bit mismatches {bad_seekbits:?}"
+    );
 
     // cold start at every seek point; decode the whole segment
     let pts = h.seek_points(rom);
@@ -121,7 +152,12 @@ fn verify_video(rom: &[u8], c: &Cart, off: usize) {
         nframes,
         t0.elapsed().as_secs_f64()
     );
-    assert!(bad.is_empty(), "{}:{id}: cold-start mismatches at {:?}", c.short, &bad[..bad.len().min(20)]);
+    assert!(
+        bad.is_empty(),
+        "{}:{id}: cold-start mismatches at {:?}",
+        c.short,
+        &bad[..bad.len().min(20)]
+    );
 }
 
 fn verify_audio(rom: &[u8], c: &Cart, off: usize) {
@@ -160,30 +196,62 @@ fn verify_audio(rom: &[u8], c: &Cart, off: usize) {
             m.update(hex(b).as_bytes());
         }
         let ok = blocks.len() >= n && hex(&m.finish()) == digest;
-        line += &format!(" | streams.json {n} played blocks {}", if ok { "match" } else { "MISMATCH" });
+        line += &format!(
+            " | streams.json {n} played blocks {}",
+            if ok { "match" } else { "MISMATCH" }
+        );
         assert!(ok, "{}:{id}: audio digest mismatch", c.short);
         checked = true;
     }
     if let Some(man) = audio_block_manifest(c.short, off) {
-        let first_bad = man.iter().enumerate().find(|(i, m)| blocks.get(*i).map(|b| hex(b)) != Some((*m).clone())).map(|(i, _)| i);
+        let first_bad = man
+            .iter()
+            .enumerate()
+            .find(|(i, m)| blocks.get(*i).map(|b| hex(b)) != Some((*m).clone()))
+            .map(|(i, _)| i);
         match (first_bad, known_underrun(c.short, off)) {
             (None, _) => line += &format!(" | per-block {}/{} match", man.len(), man.len()),
-            (Some(k), Some(u)) if k == u => line += &format!(" | per-block {k}/{} match before the known emulator underrun at {u}", man.len()),
-            (Some(k), _) => panic!("{}:{id}: audio block {k} differs from the per-block manifest", c.short),
+            (Some(k), Some(u)) if k == u => {
+                line += &format!(
+                    " | per-block {k}/{} match before the known emulator underrun at {u}",
+                    man.len()
+                )
+            }
+            (Some(k), _) => panic!(
+                "{}:{id}: audio block {k} differs from the per-block manifest",
+                c.short
+            ),
         }
         checked = true;
     }
     if let Some(r) = pcm_reference(c.short, off) {
-        assert_eq!(r.len(), blocks.len(), "{}:{id}: AFrame count differs from vxaudio.py", c.short);
+        assert_eq!(
+            r.len(),
+            blocks.len(),
+            "{}:{id}: AFrame count differs from vxaudio.py",
+            c.short
+        );
         let bad_pcm = r.iter().zip(&pcm).position(|((p, _), q)| *p != hex(q));
         let bad_out = r.iter().zip(&blocks).position(|((_, o), q)| *o != hex(q));
         line += &format!(
             " | vxaudio.py: pcm {} out {} ({} AFrames)",
-            if bad_pcm.is_none() { "match" } else { "MISMATCH" },
-            if bad_out.is_none() { "match" } else { "MISMATCH" },
+            if bad_pcm.is_none() {
+                "match"
+            } else {
+                "MISMATCH"
+            },
+            if bad_out.is_none() {
+                "match"
+            } else {
+                "MISMATCH"
+            },
             r.len()
         );
-        assert!(bad_pcm.is_none() && bad_out.is_none(), "{}:{id}: vxaudio.py mismatch pcm {bad_pcm:?} out {bad_out:?}", c.short);
+        assert!(
+            bad_pcm.is_none() && bad_out.is_none(),
+            "{}:{id}: vxaudio.py mismatch pcm {bad_pcm:?} out {bad_out:?}",
+            c.short
+        );
         checked = true;
     }
     println!("{line}");
@@ -272,7 +340,8 @@ fn codec_streams() {
     }
     // a non-VX cart is rejected
     let dir = roms_dir().unwrap();
-    let other = std::fs::read(dir.join("Game Boy Advance Video - Pokemon - Volume 1 (USA).gba")).ok();
+    let other =
+        std::fs::read(dir.join("Game Boy Advance Video - Pokemon - Volume 1 (USA).gba")).ok();
     if let Some(o) = other {
         assert!(gbav_vx::Vx::streams(&o).is_err());
     }

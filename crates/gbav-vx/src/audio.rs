@@ -49,7 +49,12 @@ impl Codebook {
             scale_mod[k] = h(3072 + 2 * k);
             lpc_base[k] = w(3088 + 4 * k);
         }
-        Some(Codebook { cb, scale_mod, lpc_base, scale_initial: w(3120) })
+        Some(Codebook {
+            cb,
+            scale_mod,
+            lpc_base,
+            scale_initial: w(3120),
+        })
     }
 }
 
@@ -150,7 +155,11 @@ impl AudioState {
                 }
             }
         }
-        ((w1 & 0x3f) as usize, ((w2 >> 6) & 0x3f) as usize, (w2 & 0x3f) as usize)
+        (
+            (w1 & 0x3f) as usize,
+            ((w2 >> 6) & 0x3f) as usize,
+            (w2 & 0x3f) as usize,
+        )
     }
 
     /// 0x0300662c: 8-tap all-pole synthesis of `n` samples from B[sb][si..] to B[db][di..].
@@ -172,7 +181,12 @@ impl AudioState {
     /// Decode the AFrame at `buf[off..]` (zero-padded to 20 bytes by the caller if short).
     /// Returns its size in bytes; the 128 samples go to `samples`, the 512 8-bit output
     /// bytes (as the cart writes them to the FIFO buffer) to `out`.
-    pub fn decode(&mut self, fr: &[u8; 20], samples: &mut [i32; SAMPLES], out: &mut [u8; OUT_BYTES]) -> usize {
+    pub fn decode(
+        &mut self,
+        fr: &[u8; 20],
+        samples: &mut [i32; SAMPLES],
+        out: &mut [u8; OUT_BYTES],
+    ) -> usize {
         let hw = |i: usize| u16::from_le_bytes([fr[2 * i], fr[2 * i + 1]]);
         let (w1, w2) = (hw(0), hw(1));
         let mode = ((w2 >> 12) & 3) as usize;
@@ -182,8 +196,8 @@ impl AudioState {
             *w = hw(2 + i);
         }
         let pfo = w1 >> 9;
-        let outb;
-        if pfo == 0x7f {
+
+        let outb = if pfo == 0x7f {
             // 0x03006c60: intra
             self.scale = self.c.scale_initial; // 0x030069c0
             self.toggle = 1;
@@ -194,7 +208,7 @@ impl AudioState {
             let infl = self.filter(self.c.lpc_base, i0, i1, i2);
             self.infl40 = infl;
             self.synth(1, 128, 0, 0, &infl, 128);
-            outb = 0;
+            0
         } else {
             // 0x03006c9c: predicted
             let (cur, oth) = (self.toggle, self.toggle ^ 1);
@@ -230,8 +244,8 @@ impl AudioState {
             for (blk, q) in [q0, q1, q2, infl].iter().enumerate() {
                 self.synth(cur, 128 + 32 * blk, oth, 32 * blk, q, 32);
             }
-            outb = oth;
-        }
+            oth
+        };
         self.toggle ^= 1;
         samples.copy_from_slice(&self.b[outb][..128]);
         self.shaper.run(samples, out);

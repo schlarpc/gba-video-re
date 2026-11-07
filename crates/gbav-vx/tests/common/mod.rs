@@ -22,12 +22,42 @@ pub struct Cart {
 }
 
 pub const CARTS: &[Cart] = &[
-    Cart { file: "Game Boy Advance Video - Shrek (USA) (Rev 6).gba", short: "shrek-rev6", sha1: Some("95d612057682b7b886441d387b167ba2493e49ef"), streams: &[0x20200] },
-    Cart { file: "Game Boy Advance Video - Shrek (USA) (Rev 5).gba", short: "shrek-rev5", sha1: Some("2dedea86ec289a0e31089299613d9f74cca03609"), streams: &[0x20200] },
-    Cart { file: "Game Boy Advance Video - Shrek 2 (USA) (Rev 6).gba", short: "shrek2-rev6", sha1: Some("3bcb4acc5da539bc1b91c9537bf7ffa081ded1d4"), streams: &[0x20200] },
-    Cart { file: "Game Boy Advance Video - Shrek 2 (USA) (Rev 5).gba", short: "shrek2-rev5", sha1: None, streams: &[0x20200] },
-    Cart { file: "Game Boy Advance Video - Shark Tale (USA) (Rev 6).gba", short: "sharktale-rev6", sha1: Some("9bc5b60793b8a6de3b80eb2c213cd125e1fa468e"), streams: &[0x20200] },
-    Cart { file: "Game Boy Advance Video - Shark Tale (USA) (Rev 5).gba", short: "sharktale-rev5", sha1: None, streams: &[0x20200] },
+    Cart {
+        file: "Game Boy Advance Video - Shrek (USA) (Rev 6).gba",
+        short: "shrek-rev6",
+        sha1: Some("95d612057682b7b886441d387b167ba2493e49ef"),
+        streams: &[0x20200],
+    },
+    Cart {
+        file: "Game Boy Advance Video - Shrek (USA) (Rev 5).gba",
+        short: "shrek-rev5",
+        sha1: Some("2dedea86ec289a0e31089299613d9f74cca03609"),
+        streams: &[0x20200],
+    },
+    Cart {
+        file: "Game Boy Advance Video - Shrek 2 (USA) (Rev 6).gba",
+        short: "shrek2-rev6",
+        sha1: Some("3bcb4acc5da539bc1b91c9537bf7ffa081ded1d4"),
+        streams: &[0x20200],
+    },
+    Cart {
+        file: "Game Boy Advance Video - Shrek 2 (USA) (Rev 5).gba",
+        short: "shrek2-rev5",
+        sha1: None,
+        streams: &[0x20200],
+    },
+    Cart {
+        file: "Game Boy Advance Video - Shark Tale (USA) (Rev 6).gba",
+        short: "sharktale-rev6",
+        sha1: Some("9bc5b60793b8a6de3b80eb2c213cd125e1fa468e"),
+        streams: &[0x20200],
+    },
+    Cart {
+        file: "Game Boy Advance Video - Shark Tale (USA) (Rev 5).gba",
+        short: "sharktale-rev5",
+        sha1: None,
+        streams: &[0x20200],
+    },
     Cart {
         file: "Game Boy Advance Video - Shrek + Shark Tale (USA) (Rev 5).gba",
         short: "shrek-sharktale-rev5",
@@ -43,7 +73,9 @@ pub fn known_underrun(short: &str, off: usize) -> Option<usize> {
 }
 
 pub fn roms_dir() -> Option<PathBuf> {
-    std::env::var_os("GBAV_ROMS").map(PathBuf::from).filter(|p| p.is_dir())
+    std::env::var_os("GBAV_ROMS")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
 }
 
 pub fn cart(short: &str) -> &'static Cart {
@@ -67,7 +99,11 @@ pub fn repo_root() -> PathBuf {
 
 /// gunzip via the system `gzip` (test-only; keeps the crate dependency-free).
 pub fn gunzip(p: &Path) -> String {
-    let out = Command::new("gzip").arg("-dc").arg(p).output().expect("run gzip");
+    let out = Command::new("gzip")
+        .arg("-dc")
+        .arg(p)
+        .output()
+        .expect("run gzip");
     assert!(out.status.success(), "gzip -dc {} failed", p.display());
     String::from_utf8(out.stdout).unwrap()
 }
@@ -92,7 +128,12 @@ pub fn frame_manifest(short: &str, off: usize) -> Option<(PathBuf, Vec<(String, 
     let mut v = Vec::new();
     for (i, line) in txt.lines().skip(1).enumerate() {
         let f: Vec<&str> = line.trim_end().split(',').collect();
-        assert_eq!(f[0].parse::<usize>().unwrap(), i, "manifest {} not in frame order", p.display());
+        assert_eq!(
+            f[0].parse::<usize>().unwrap(),
+            i,
+            "manifest {} not in frame order",
+            p.display()
+        );
         v.push((f[1].to_string(), f.get(2).unwrap_or(&"").to_string()));
     }
     Some((p, v))
@@ -101,7 +142,13 @@ pub fn frame_manifest(short: &str, off: usize) -> Option<(PathBuf, Vec<(String, 
 /// Per-block md5 of the 512-byte blocks the emulated cart played.
 pub fn audio_block_manifest(short: &str, off: usize) -> Option<Vec<String>> {
     let p = find_manifest(&format!("{short}_{off:x}.audio_md5.csv.gz"))?;
-    Some(gunzip(&p).lines().skip(1).map(|l| l.split(',').nth(1).unwrap().trim().to_string()).collect())
+    Some(
+        gunzip(&p)
+            .lines()
+            .skip(1)
+            .map(|l| l.split(',').nth(1).unwrap().trim().to_string())
+            .collect(),
+    )
 }
 
 /// (audio_blocks, audio_md5) from verify/streams.json, where md5 = md5 of the concatenated
@@ -139,7 +186,10 @@ pub fn pcm_reference(short: &str, off: usize) -> Option<Vec<(String, String)>> {
 }
 
 pub fn index_of(v: &[(String, String)]) -> HashMap<String, usize> {
-    v.iter().enumerate().map(|(i, (y, _))| (y.clone(), i)).collect()
+    v.iter()
+        .enumerate()
+        .map(|(i, (y, _))| (y.clone(), i))
+        .collect()
 }
 
 /// Frame start bits from the independent grammar walker (container/vxvwalk.py), when the repo

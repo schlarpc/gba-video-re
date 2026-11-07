@@ -2,12 +2,14 @@
 
 /// Little-endian u16 at `off`, or `None` past the end.
 pub fn le16(b: &[u8], off: usize) -> Option<u16> {
-    b.get(off..off.checked_add(2)?).map(|s| u16::from_le_bytes([s[0], s[1]]))
+    b.get(off..off.checked_add(2)?)
+        .map(|s| u16::from_le_bytes([s[0], s[1]]))
 }
 
 /// Little-endian u32 at `off`, or `None` past the end.
 pub fn le32(b: &[u8], off: usize) -> Option<u32> {
-    b.get(off..off.checked_add(4)?).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+    b.get(off..off.checked_add(4)?)
+        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
 }
 
 /// Streaming MD5 (RFC 1321). `gbav_common::md5::digest` copies its input and rebuilds its
@@ -46,12 +48,17 @@ impl Default for Md5 {
 
 impl Md5 {
     pub fn new() -> Self {
-        Md5 { h: [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476], buf: [0; 64], nbuf: 0, len: 0 }
+        Md5 {
+            h: [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476],
+            buf: [0; 64],
+            nbuf: 0,
+            len: 0,
+        }
     }
 
     fn block(h: &mut [u32; 4], chunk: &[u8]) {
         let mut m = [0u32; 16];
-        for (i, w) in chunk.chunks_exact(4).enumerate() {
+        for (i, w) in chunk.as_chunks::<4>().0.iter().enumerate() {
             m[i] = u32::from_le_bytes([w[0], w[1], w[2], w[3]]);
         }
         let (mut a, mut b, mut c, mut d) = (h[0], h[1], h[2], h[3]);
@@ -65,7 +72,12 @@ impl Md5 {
             let t = d;
             d = c;
             c = b;
-            b = b.wrapping_add(a.wrapping_add(f).wrapping_add(K[i]).wrapping_add(m[g]).rotate_left(S[i]));
+            b = b.wrapping_add(
+                a.wrapping_add(f)
+                    .wrapping_add(K[i])
+                    .wrapping_add(m[g])
+                    .rotate_left(S[i]),
+            );
             a = t;
         }
         h[0] = h[0].wrapping_add(a);
@@ -101,7 +113,11 @@ impl Md5 {
         let bits = self.len.wrapping_mul(8);
         let mut pad = [0u8; 72];
         pad[0] = 0x80;
-        let n = if self.nbuf < 56 { 56 - self.nbuf } else { 120 - self.nbuf };
+        let n = if self.nbuf < 56 {
+            56 - self.nbuf
+        } else {
+            120 - self.nbuf
+        };
         let len = self.len;
         self.update(&pad[..n]);
         self.update(&bits.to_le_bytes());
@@ -187,7 +203,11 @@ mod tests {
     fn md5_matches_common() {
         let data: Vec<u8> = (0..1000u32).map(|i| (i * 7 + 3) as u8).collect();
         for n in [0, 1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 999, 1000] {
-            assert_eq!(md5_hex(&data[..n]), gbav_common::md5::hex(&data[..n]), "len {n}");
+            assert_eq!(
+                md5_hex(&data[..n]),
+                gbav_common::md5::hex(&data[..n]),
+                "len {n}"
+            );
             // split updates
             let mut m = Md5::new();
             for c in data[..n].chunks(17) {

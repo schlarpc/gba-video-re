@@ -17,15 +17,15 @@ fn main() {
     let stream = a.get(2).map(String::as_str).unwrap_or("0");
     let mode = a.get(3).map(String::as_str).unwrap_or("decode");
     let t0 = Instant::now();
-    let n;
-    if mode == "audio" {
+
+    let n = if mode == "audio" {
         let mut au = VxAudio::open(&rom[..], stream).unwrap();
         let mut out = [0u8; 512];
         let mut k = 0u64;
         while au.next_into(&mut out) {
             k += 1;
         }
-        n = k;
+        k
     } else {
         let mut v = VxVideo::open(&rom[..], stream).unwrap();
         let (w, h) = (v.header().width, v.header().height);
@@ -39,13 +39,20 @@ fn main() {
                 "blit" => v.bgr555_into(&mut px),
                 "md5" => {
                     v.bgr555_into(&mut px);
-                    writeln!(o, "{f} {} {} bit={}", md5_hex(v.slot()), md5_hex_u16(&px), v.frame_bit()).unwrap();
+                    writeln!(
+                        o,
+                        "{f} {} {} bit={}",
+                        md5_hex(v.slot()),
+                        md5_hex_u16(&px),
+                        v.frame_bit()
+                    )
+                    .unwrap();
                 }
                 _ => {}
             }
         }
-        n = k;
-    }
+        k
+    };
     let dt = t0.elapsed().as_secs_f64();
     eprintln!("{mode}: {n} units in {dt:.2} s ({:.0}/s)", n as f64 / dt);
 }
