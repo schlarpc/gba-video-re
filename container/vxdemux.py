@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""VX++ (Actimagine GBA Video) container parser / demuxer for the Shrek cartridge.
+"""VX++ (Actimagine GBA Video) container parser / demuxer.
 
-See docs/container.md for the format.
+See docs/container.md for the format. Every command takes [--stream OFF|IDX]: the VX++
+header offset (or index, see `info`) of the stream to use; default = the first one.
 
   vxdemux.py info   [ROM]                 header, chapters, seek table
   vxdemux.py walk   [ROM] [--video]       walk + validate the entire movie (audio framing,
@@ -28,11 +29,13 @@ against all 194 interior seek offsets; audio is assigned to frames by the player
 import os, struct, sys, wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hashlib
 import vxaudio
+import vxcart
 import vxvwalk
 import json
 
-FRAME_BITS_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out', 'frame_bits.json')
+OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'out')
 
 DEFAULT_ROM = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'shrek.gba')
 HDR_SIZE = 0x38
@@ -85,7 +88,7 @@ class VXContainer:
         self.audio_start = H + self.audio_off
         self.audio_end = H + self.chapter_off        # exclusive, 0x200-aligned
         c = H + self.chapter_off
-        n = struct.unpack_from('<I', rom, c)[0]
+        n = struct.unpack_from('<I', rom, c)[0] if self.chapter_off else 0
         self.chapters = list(struct.unpack_from('<%dI' % n, rom, c + 4))
         s = H + self.seek_off
         self.seek = [struct.unpack_from('<4I', rom, s + 16 * i) for i in range(self.nseek)]
@@ -94,19 +97,15 @@ class VXContainer:
 
     @staticmethod
     def find_all(rom):
-        out, i = [], -1
-        while True:
-            i = rom.find(MAGIC, i + 1)
-            if i < 0:
-                return out
-            if i % 0x200 == 0:   # streams are sector aligned (cart reads 0x200-byte sectors)
-                out.append(i)
+        return vxcart.find_streams(rom)   # sector-aligned magic (the cart reads 0x200-byte sectors)
 
     def find(self):
-        a = self.find_all(self.rom)
-        if not a:
-            raise ValueError('no VX++ stream')
-        return a[0]
+        return vxcart.pick_stream(self.rom)
+
+    def cache_path(self):
+        """Per-stream cache file for the per-frame bit positions."""
+        tag = hashlib.sha1(self.rom[self.H:self.H + 0x38] + bytes(self.video[:4096])).hexdigest()[:12]
+        return os.path.join(OUT_DIR, 'frame_bits_%x_%s.json' % (self.H, tag))
 
     # --- seek-segment level
     def segments(self):
@@ -143,22 +142,37 @@ class VXContainer:
             p += n
             i += 1
 
-    @staticmethod
-    def aframe_for_frame(f):
-        """First AFrame played with video frame f (128 AFrames/s, 7 fps). Matches every
-        seek-table entry: floor((128 f + 1) / 7)."""
-        return (128 * f + 1) // 7
+    def aframe_for_frame(self, f):
+        """First AFrame played with video frame f (128 AFrames/s, 7 fps). The player restarts
+        both clocks together at a seek point, so the mapping is anchored on the seek entry at
+        or before f: a_seek + floor((128 (f - f_seek) + 1) / 7). In Shrek this equals
+        floor((128 f + 1) / 7) everywhere; other movies' encoders placed some seek points'
+        audio one AFrame either side of that global formula."""
+        if f >= self.nframes:
+            e = self._seek_aframes()[-1]
+            return e[1] + (128 * (f - e[0]) + 1) // 7
+        e = max((x for x in self._seek_aframes() if x[0] <= f), default=(0, 0))
+        return e[1] + (128 * (f - e[0]) + 1) // 7
+
+    def _seek_aframes(self):
+        """[(seek frame, AFrame index of its audio_byte)]."""
+        if not hasattr(self, '_sa'):
+            pos = {p: i for i, p, _ in self.aframes()}
+            self._sa = [(e[0], pos.get(e[2], (128 * e[0] + 1) // 7)) for e in self.seek[:-1]]
+        return self._sa
 
 
-def video_frame_bits(c, cache=FRAME_BITS_CACHE, verbose=False):
+def video_frame_bits(c, cache=True, verbose=False):
     """Per-frame start bits (len nframes+1) by walking the macroblock grammar
     (vxvwalk.py); every segment must end exactly on the next seek offset."""
+    cache = c.cache_path() if cache else None
     if cache and os.path.exists(cache):
         j = json.load(open(cache))
         if len(j['frame_start_bits']) == c.nframes + 1:
             return j['frame_start_bits'], j['frame_qp_field']
     sw = vxvwalk.swap16(bytes(c.video))
-    lut = c.rom[vxvwalk.LUT_ROM:vxvwalk.LUT_ROM + vxvwalk.LUT_SIZE]
+    lut_rom = vxcart.player_layout(c.rom)["ewram"][0] + 0x10e4   # EWRAM 0x020010e4 (0x9ae4 in Shrek)
+    lut = c.rom[lut_rom:lut_rom + vxvwalk.LUT_SIZE]
     tail = c.video_tail_bits()
     starts, qs = [], []
     for s in c.segments():
@@ -209,8 +223,12 @@ def walk(c, verbose=True, video_frames=False):
     check(all(c.seek[i][2] < c.seek[i + 1][2] for i in range(len(segs) - 1)), 'audio bytes not increasing')
     check(all(e[3] == 0 for e in c.seek), 'seek pad field nonzero')
     seekset = set(fr)
-    check(all(ch in seekset for ch in c.chapters), 'chapter not on a seek point')
-    check(c.chapters[-1] == c.last_chapter_frame, 'hdr+0x24 != last chapter')
+    # Shark Tale has 2 chapters one frame after a seek point; the player seeks to the entry
+    # containing the chapter frame, so it lands on that seek point (harmless).
+    off_seek = [ch for ch in c.chapters if ch not in seekset]
+    check(all(max(x for x in fr if x <= ch) >= ch - 1 for ch in off_seek), 'chapter far from a seek point')
+    # hdr+0x24 = last chapter start; 0 when the table holds only frame 0 (short streams)
+    check((c.chapters[-1] if len(c.chapters) > 1 else 0) == c.last_chapter_frame, 'hdr+0x24 != last chapter')
     check(c.seek[-2][0] == c.last_seek_frame, 'hdr+0x30 != last seek frame')
     # each segment's first video frame starts with ue(v) QP != 0 (a leading 0 bit)
     qps = []
@@ -236,13 +254,14 @@ def walk(c, verbose=True, video_frames=False):
         last_end = p + sz
     check(len(hits) == len(seek_a), 'only %d/%d seek audio offsets are AFrame starts' % (len(hits), len(seek_a)))
     check(sorted(intra) == sorted(seek_a), 'intra AFrames != seek points')
-    for p, i in hits.items():
-        check(i == c.aframe_for_frame(seek_a[p]), 'aframe index %d != formula for frame %d' % (i, seek_a[p]))
+    # the encoder puts each seek point's audio within one AFrame of floor((128 f + 1) / 7)
+    dev = [i - (128 * seek_a[p] + 1) // 7 for p, i in hits.items()]
+    check(all(abs(d) <= 1 for d in dev), 'seek-point audio more than 1 AFrame off the 7 fps / 128 Hz clock')
     check(not any(c.audio[last_end:]), 'nonzero audio tail')
-    check(c.aframe_for_frame(c.nframes) <= n, 'audio shorter than video')
+    check((128 * c.nframes + 1) // 7 <= n + 1, 'audio shorter than video')
     if video_frames:
         try:
-            fb, qs = video_frame_bits(c, cache=None, verbose=verbose)
+            fb, qs = video_frame_bits(c, cache=False, verbose=verbose)
             sizes = [fb[i + 1] - fb[i] for i in range(c.nframes)]
             if verbose:
                 print('\nvideo per-frame walk: %d frames, all %d segment ends exact; frame sizes %d..%d bits, '
@@ -258,8 +277,10 @@ def walk(c, verbose=True, video_frames=False):
         print('segment QPs: min %d max %d, first %s' % (min(qps), max(qps), qps[:8]))
         print('audio: %d AFrames (%.3f s), %d bytes + %d zero pad; all %d seek offsets hit, %d intra AFrames' % (
             n, n * 128 / 16384, last_end, len(c.audio) - last_end, len(hits), len(intra)))
-        print('audio per frame: AFrames [floor((128f+1)/7), floor((128(f+1)+1)/7)) ; last frame ends at %d of %d' % (
-            c.aframe_for_frame(c.nframes), n))
+        print('seek-point AFrame - floor((128f+1)/7): %s; chapters one frame past a seek point: %s' % (
+            {d: dev.count(d) for d in sorted(set(dev))}, off_seek or 'none'))
+        print('audio per frame: AFrames [floor((128f+1)/7), floor((128(f+1)+1)/7)) from the seek point; '
+              'floor((128n+1)/7) = %d of %d AFrames' % ((128 * c.nframes + 1) // 7, n))
         print('WALK', 'OK' if ok else 'FAILED')
     return ok
 
@@ -372,15 +393,26 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__); return 1
     cmd = argv[1]
-    args = [a for a in argv[2:] if not a.startswith('--')]
-    flags = [a for a in argv[2:] if a.startswith('--')]
+    rest, stream = [], None
+    it = iter(argv[2:])
+    for a in it:
+        if a == '--stream':
+            stream = int(next(it), 0)
+        elif a == '--frames':
+            next(it)
+        else:
+            rest.append(a)
+    args = [a for a in rest if not a.startswith('--')]
+    flags = [a for a in rest if a.startswith('--')]
     rom_path = args.pop(0) if args and args[0].endswith('.gba') else DEFAULT_ROM
     rom = open(rom_path, 'rb').read()
-    c = VXContainer(rom)
+    c = VXContainer(rom, vxcart.pick_stream(rom, stream))
     if cmd == 'info':
         cmd_info(c)
-        others = [hex(x) for x in VXContainer.find_all(rom)]
-        print('VX++ streams (sector-aligned magic) in ROM:', others)
+        print('VX++ streams (sector-aligned magic) in ROM:')
+        for i, h in enumerate(VXContainer.find_all(rom)):
+            n, w, hh = struct.unpack_from('<3I', rom, h + 4)
+            print('  %d  0x%x  %dx%d  %d frames' % (i, h, w, hh, n))
     elif cmd == 'walk':
         return 0 if walk(c, video_frames='--video' in flags) else 2
     elif cmd == 'extract':

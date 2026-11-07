@@ -565,14 +565,32 @@ void vx_dec_seek(vx_dec *d, uint32_t bitoff)
 }
 
 /* ------------------------------------------------------------------ YUV -> BGR555 (0x03000370) */
-/* Runtime IWRAM bytes 0x03000000..0x030003ff (incl. the init-time patches at 0x38c/0x394
- * for a 240x160 movie). The clamp table T is at 0x1f0; indices -260..509 are used, so
- * T reaches into the IRQ code before it and the blitter code after it, exactly as here. */
+/* Runtime IWRAM bytes 0x03000000..0x030003ff. The clamp table T is at 0x1f0; indices
+ * -260..509 are used, so T reaches into the IRQ code before it and the blitter code after
+ * it. That code includes the two immediates player_run patches for the stream's size
+ * (0x38c `mov sl,#height`, 0x394 `mov sl,#width`), so T depends on the picture size. */
 #include "iwram_lut.h"
+
+static void put32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
+}
+
+/* ARM `mov sl,#v` as player_run encodes it (0x03006df4): rotated 8-bit immediate. */
+static uint32_t mov_sl_imm(uint32_t v)
+{
+    uint32_t rot = 0x10;
+    while (v > 0xff && !(v & 3)) { v >>= 2; rot--; }
+    return 0xe3a0a000u | v | (rot & 0xf) << 8;
+}
 
 void vx_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int height)
 {
-    const uint8_t *T = vx_iwram_lo + 0x1f0;
+    uint8_t iw[0x400];
+    memcpy(iw, vx_iwram_lo, sizeof iw);
+    put32(iw + 0x38c, mov_sl_imm((uint32_t)height));
+    put32(iw + 0x394, mov_sl_imm((uint32_t)width));
+    const uint8_t *T = iw + 0x1f0;
     for (int y = 0; y < height; y++)
         for (int x = 0; x < width; x++) {
             int Y = slot[y * 256 + x] - 4 * ((x + y) & 1);

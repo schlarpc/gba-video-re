@@ -1,7 +1,9 @@
 /* vxdec_main.c -- CLI for the VX++ reference decoder.
  *   vxdec ROM_OR_VXFILE [--start-frame N] [--count M] [--out DIR] [--y4m FILE] [--rgb]
  *                       [--md5] [--trace FILE] [--stats]
- * ROM: the VX++ file is located by its 'VX++' magic on a 0x200 boundary (0x20200 in Shrek).
+ * ROM: VX++ streams are located by their 'VX++' magic on a 0x200 boundary. The first one is
+ *   decoded unless --stream picks another: a header offset (0x1eef800) or an index (1).
+ *   --list prints the streams and exits.
  * --start-frame N: N = 0 starts like the player's power-on (first frame); otherwise the
  *   decoder seeks to the last seek-table entry <= N (exactly like the player's seek,
  *   0x02000584) and decodes forward, emitting frames N .. N+M-1.
@@ -25,6 +27,8 @@ int main(int argc, char **argv)
     long start = 0, count = 1;
     int rgb = 0, md5 = 0, stats = 0;
     const char *initfill = NULL;
+    long want = -1;
+    int list = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--start-frame") && i + 1 < argc) start = atol(argv[++i]);
         else if (!strcmp(argv[i], "--count") && i + 1 < argc) count = atol(argv[++i]);
@@ -34,11 +38,13 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--rgb")) rgb = 1;
         else if (!strcmp(argv[i], "--md5")) md5 = 1;
         else if (!strcmp(argv[i], "--stats")) stats = 1;
+        else if (!strcmp(argv[i], "--stream") && i + 1 < argc) want = strtol(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--list")) list = 1;
         else if (!strcmp(argv[i], "--init-fill") && i + 1 < argc) initfill = argv[++i];  /* experiment: "Y,UV" */
         else if (argv[i][0] != '-' && !in) in = argv[i];
         else { fprintf(stderr, "bad arg %s\n", argv[i]); return 2; }
     }
-    if (!in) { fprintf(stderr, "usage: vxdec ROM_OR_VXFILE [--start-frame N] [--count M] [--out DIR] [--y4m F] [--rgb] [--md5]\n"); return 2; }
+    if (!in) { fprintf(stderr, "usage: vxdec ROM_OR_VXFILE [--stream OFF|IDX] [--list] [--start-frame N] [--count M] [--out DIR] [--y4m F] [--rgb] [--md5]\n"); return 2; }
     FILE *f = fopen(in, "rb");
     if (!f) { perror(in); return 1; }
     fseek(f, 0, SEEK_END);
@@ -48,15 +54,35 @@ int main(int argc, char **argv)
     if (fread(file, 1, fsz, f) != (size_t)fsz) { perror("read"); return 1; }
     fclose(f);
 
-    long vx = -1;
-    for (long o = 0; o + 0x38 <= fsz; o += 0x200)
-        if (!memcmp(file + o, "VX++", 4)) { vx = o; break; }
-    if (vx < 0) { fprintf(stderr, "no VX++ header\n"); return 1; }
+    long vx = -1, streams[64];
+    int ns = 0;
+    for (long o = 0; o + 0x38 <= fsz && ns < 64; o += 0x200) {
+        if (memcmp(file + o, "VX++", 4)) continue;
+        uint32_t n = rd32(file + o + 4), sw = rd32(file + o + 8), sh = rd32(file + o + 12);
+        if (n && n < (1u << 20) && sw && sw <= 240 && sh && sh <= 160 && !((sw | sh) & 15)) streams[ns++] = o;
+    }
+    if (list) {
+        for (int i = 0; i < ns; i++)
+            printf("%d 0x%lx %ux%u %u frames\n", i, streams[i], rd32(file + streams[i] + 8),
+                   rd32(file + streams[i] + 12), rd32(file + streams[i] + 4));
+        return 0;
+    }
+    if (want < 0 && ns) vx = streams[0];
+    for (int i = 0; i < ns; i++)
+        if (want == i || want == streams[i]) vx = streams[i];
+    if (vx < 0) { fprintf(stderr, "no VX++ stream%s\n", want >= 0 ? " there (see --list)" : ""); return 1; }
     const uint8_t *h = file + vx;
     uint32_t nframes = rd32(h + 4), w = rd32(h + 8), hh = rd32(h + 12);
     uint32_t seekoff = rd32(h + 0x28), audio = rd32(h + 0x1c);
+    /* The cart's player EWRAM image (program 2 of the boot loader's table at ROM 0x8e4;
+     * its load header's EWRAM section starts at the program image itself). */
     const uint8_t *ewimg = NULL;
-    if (vx == 0x20200 && fsz > 0x8a00 + 0x32c8) ewimg = file + 0x8a00;   /* the cart's player EWRAM image */
+    if (fsz > 0x8f0) {
+        long prog = 0xa00 + (long)rd32(file + 0x8e4) + (long)rd32(file + 0x8e8);
+        if (prog + 0x44 <= fsz && rd32(file + prog + 14 * 4) == 0x02000000 &&
+            rd32(file + prog + 15 * 4) == 0x020032c8 && prog + 0x32c8 <= fsz)
+            ewimg = file + prog;
+    }
     if (w > 240 || hh > 160 || (w & 15) || (hh & 15)) { fprintf(stderr, "bad size %ux%u\n", w, hh); return 1; }
 
     static vx_dec d;

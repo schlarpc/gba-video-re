@@ -5,8 +5,9 @@ Loads the player's EWRAM/IWRAM images straight from the ROM, builds the player s
 struct (VRAM 0x06013E80) the way player_run (0x03006df4) / seek (0x02000584) do, and
 calls the real per-frame wrapper 0x03006d30. The Matrix mapper is serviced by a write hook.
 
-  uc_oracle.py --start-frame N --count M --out DIR     (N must be 0 or a seek-table frame)
-  as a module: o = Oracle(rom); o.reset(bit=None|seekbit); o.decode() -> 0xF000 bytes
+  uc_oracle.py [--rom ROM] [--stream OFF|IDX] --start-frame N --count M --out DIR
+                                                       (N must be 0 or a seek-table frame)
+  as a module: o = Oracle(rom, stream); o.reset(bit=None|seekbit); o.decode() -> 0xF000 bytes
 
 Per-MB trace: o.mb_trace = [] collects (mb_index, bitpos) at every 16x16 MB start.
 """
@@ -19,26 +20,30 @@ from unicorn import Uc, UC_ARCH_ARM, UC_MODE_ARM, UC_HOOK_MEM_WRITE, UC_HOOK_COD
 from unicorn.arm_const import *
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "container"))
+import vxcart  # noqa: E402
 ROM_DEFAULT = os.path.join(HERE, "..", "shrek.gba")
 ST = 0x06013E80
-VXFILE = 0x20200
 SLOT0 = 0x020032C8
 SENTINEL = 0x00003FF0
 MVARR = 0x0203F2C8
 
 
 class Oracle:
-    def __init__(self, rom=ROM_DEFAULT):
+    def __init__(self, rom=ROM_DEFAULT, stream=None):
         self.rom = open(rom, "rb").read()
+        self.vx = vxcart.pick_stream(self.rom, stream)
+        L = vxcart.player_layout(self.rom)
         uc = self.uc = Uc(UC_ARCH_ARM, UC_MODE_ARM)
         for a, s in ((0, 0x4000), (0x02000000, 0x40000), (0x03000000, 0x8000), (0x04000000, 0x1000),
                      (0x06000000, 0x18000), (0x08000000, 0x2000), (0x08800000, 0x1000)):
             uc.mem_map(a, s)
-        uc.mem_write(0x02000000, self.rom[0x8a00:0x8a00 + 0x32c8])
-        uc.mem_write(0x03000000, self.rom[0xbcc8:0xbcc8 + 0x7cf4])
+        (eo, en), (io, isz) = L["ewram"], L["iwram"]
+        uc.mem_write(0x02000000, self.rom[eo:eo + en])
+        uc.mem_write(0x03000000, self.rom[io:io + isz])
         uc.mem_write(SENTINEL, struct.pack("<I", 0xE1A00000))
         uc.hook_add(UC_HOOK_MEM_WRITE, self._mapper, begin=0x08800180, end=0x088001FF)
-        self.hdr = struct.unpack_from("<14I", self.rom, VXFILE)
+        self.hdr = struct.unpack_from("<14I", self.rom, self.vx)
         self.mb_trace = None
         self.pages = [0] * 4
         self.frame = 0
@@ -89,14 +94,14 @@ class Oracle:
         self.w32(ST + 0x10c, 0x020010e4)
         self.w32(ST + 0x104, self.hdr[2])
         self.w32(ST + 0x108, self.hdr[3])
-        base = 0x08000000 + VXFILE
+        base = 0x08000000 + self.vx
         self.w32(ST + 0x20, base)
         if seekbit is None:
             self._map(base, 0x1000, 4)
             self.w32(ST + 0xbc, base + 0x800)
             self.w32(ST + 0xc0, 0x0800103a)
             self.w32(ST + 0xc4, 0)
-            hw = struct.unpack_from("<H", self.rom, VXFILE + 0x38)[0]
+            hw = struct.unpack_from("<H", self.rom, self.vx + 0x38)[0]
             self.w32(ST + 0xc8, hw << 16)
         else:
             b = seekbit + 0x1c0
@@ -118,7 +123,7 @@ class Oracle:
             cnt = struct.unpack("<i", struct.pack("<I", self.r32(ST + 0xc4)))[0]
         h = (r1 - 0x08001000) >> 9          # 512-byte page of the window
         fo = self.pages[h] + (r1 & 0x1FF)
-        return (fo - (VXFILE + 0x38)) * 8 - (cnt + 16)
+        return (fo - (self.vx + 0x38)) * 8 - (cnt + 16)
 
     def decode(self):
         uc = self.uc
@@ -134,7 +139,7 @@ class Oracle:
 
     def seek_table(self):
         h = self.hdr
-        off = VXFILE + h[10]
+        off = self.vx + h[10]
         out = []
         for i in range(h[11]):
             out.append(struct.unpack_from("<4I", self.rom, off + 16 * i))
@@ -144,11 +149,12 @@ class Oracle:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", default=ROM_DEFAULT)
+    ap.add_argument("--stream", type=lambda x: int(x, 0))
     ap.add_argument("--start-frame", type=int, default=0)
     ap.add_argument("--count", type=int, default=10)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
-    o = Oracle(a.rom)
+    o = Oracle(a.rom, a.stream)
     if a.start_frame == 0:
         o.reset(None)
     else:
