@@ -38,3 +38,31 @@ pub fn deobfuscate(b: &[u8]) -> String {
         })
         .collect()
 }
+
+/// A cheap, owning view of a byte range (decoders copy the part of the ROM they need once and
+/// hand out ranges of it to per-segment decompressors).
+#[derive(Clone, Debug)]
+pub struct ArcSlice {
+    data: std::sync::Arc<[u8]>,
+    start: usize,
+    end: usize,
+}
+
+impl ArcSlice {
+    pub fn new(data: std::sync::Arc<[u8]>) -> ArcSlice {
+        let end = data.len();
+        ArcSlice { data, start: 0, end }
+    }
+    /// Sub-range `start..end` of this view (clamped to it).
+    pub fn slice(&self, start: usize, end: usize) -> ArcSlice {
+        let s = (self.start + start).min(self.end);
+        let e = (self.start + end).min(self.end).max(s);
+        ArcSlice { data: self.data.clone(), start: s, end: e }
+    }
+}
+
+impl AsRef<[u8]> for ArcSlice {
+    fn as_ref(&self) -> &[u8] {
+        &self.data[self.start..self.end]
+    }
+}

@@ -16,7 +16,7 @@ pub mod util;
 pub mod vq;
 
 pub use frame::VqFrame;
-pub use util::{rd16, rd32};
+pub use util::{rd16, rd32, ArcSlice};
 
 /// Frame rate of every Majesco player: one frame every 5 VBlanks of 280896 cycles at 2^24 Hz.
 pub const FPS_NUM: u64 = 1 << 24;

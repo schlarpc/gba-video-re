@@ -185,3 +185,101 @@ macro_rules! csym {
         unsafe { std::mem::transmute($lib.sym($name)) }
     };
 }
+
+// ---------------------------------------------------------------- manifests
+
+/// Rows of a gzipped CSV manifest (header dropped), or None if the file does not exist.
+/// Decompressed with the system `gzip` (no crates.io in the workspace).
+pub fn read_manifest(path: &Path) -> Option<Vec<Vec<String>>> {
+    if !path.is_file() {
+        return None;
+    }
+    let out = Command::new("gzip").arg("-dc").arg(path).output().expect("run gzip");
+    assert!(out.status.success(), "gzip -dc {}", path.display());
+    let text = String::from_utf8(out.stdout).expect("utf8 manifest");
+    Some(text.lines().skip(1).filter(|l| !l.is_empty()).map(|l| l.split(',').map(str::to_owned).collect()).collect())
+}
+
+/// Lowercase hex MD5 (a streaming implementation: gbav_common::md5 allocates per 64-byte block,
+/// too slow for ~80 GB of framebuffers). Cross-checked against gbav_common::md5 in `md5_agrees`.
+pub fn md5_hex(b: &[u8]) -> String {
+    md5(b).iter().map(|x| format!("{x:02x}")).collect()
+}
+
+pub fn md5(data: &[u8]) -> [u8; 16] {
+    const S: [u32; 64] = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14,
+        20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6,
+        10, 15, 21,
+    ];
+    static K: std::sync::OnceLock<[u32; 64]> = std::sync::OnceLock::new();
+    let k = K.get_or_init(|| std::array::from_fn(|i| ((i as f64 + 1.0).sin().abs() * 4294967296.0) as u32));
+    let mut h: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
+    let mut block = |chunk: &[u8]| {
+        let m: [u32; 16] = std::array::from_fn(|i| u32::from_le_bytes(chunk[i * 4..i * 4 + 4].try_into().unwrap()));
+        let (mut a, mut b, mut c, mut d) = (h[0], h[1], h[2], h[3]);
+        for i in 0..64 {
+            let (f, g) = match i / 16 {
+                0 => ((b & c) | (!b & d), i),
+                1 => ((d & b) | (!d & c), (5 * i + 1) % 16),
+                2 => (b ^ c ^ d, (3 * i + 5) % 16),
+                _ => (c ^ (b | !d), (7 * i) % 16),
+            };
+            let t = d;
+            d = c;
+            c = b;
+            b = b.wrapping_add(a.wrapping_add(f).wrapping_add(k[i]).wrapping_add(m[g]).rotate_left(S[i]));
+            a = t;
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+    };
+    let full = data.len() / 64 * 64;
+    for c in data[..full].chunks_exact(64) {
+        block(c);
+    }
+    let mut tail = data[full..].to_vec();
+    tail.push(0x80);
+    while tail.len() % 64 != 56 {
+        tail.push(0);
+    }
+    tail.extend_from_slice(&((data.len() as u64).wrapping_mul(8)).to_le_bytes());
+    for c in tail.chunks_exact(64) {
+        block(c);
+    }
+    let mut out = [0u8; 16];
+    for (i, v) in h.iter().enumerate() {
+        out[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+/// Run `f` over `items` on all cores; results in input order.
+pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let n = std::thread::available_parallelism().map_or(4, |n| n.get()).min(items.len().max(1));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let slots: Vec<std::sync::Mutex<Option<R>>> = items.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    std::thread::scope(|s| {
+        for _ in 0..n {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if i >= items.len() {
+                    break;
+                }
+                let r = f(&items[i]);
+                *slots[i].lock().unwrap() = Some(r);
+            });
+        }
+    });
+    slots.into_iter().map(|m| m.into_inner().unwrap().unwrap()).collect()
+}
+
+/// `GBAV_ONLY=a,b`: restrict a whole-family test to these cart ids.
+pub fn only(id: &str) -> bool {
+    match std::env::var("GBAV_ONLY") {
+        Ok(v) if !v.is_empty() => v.split(',').any(|x| x == id),
+        _ => true,
+    }
+}
