@@ -1,0 +1,10 @@
+shrek-rev5 0x20200
+shrek2-rev5 0x20200
+sharktale-rev5 0x20200
+shrek-rev6 0x20200
+shrek2-rev6 0x20200
+sharktale-rev6 0x20200
+shrek-sharktale-rev5 0x20200
+shrek-sharktale-rev5 0x1eef800
+shrek-sharktale-rev5 0x3dd3600
+shrek-sharktale-rev5 0x3e76a00
