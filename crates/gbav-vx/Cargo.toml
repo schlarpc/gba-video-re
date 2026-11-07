@@ -1,0 +1,9 @@
+[package]
+name = "gbav-vx"
+version = "0.1.0"
+description = "Actimagine VX++ and VXGB video + VX audio decoder (Shrek, Shark Tale, Shrek 2, Shrek + Shark Tale)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

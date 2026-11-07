@@ -21,3 +21,4 @@ perf/mgba-src/
 *.wav
 *.y4m
 __pycache__/
+target/

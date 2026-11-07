@@ -1,0 +1,9 @@
+[package]
+name = "gbav-common"
+version = "0.1.0"
+description = "Shared pieces: bit readers, md5, GBA output stages (BGR555, dither, 4x audio interpolation + noise shaping)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

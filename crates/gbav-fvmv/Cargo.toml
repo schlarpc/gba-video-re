@@ -1,0 +1,9 @@
+[package]
+name = "gbav-fvmv"
+version = "0.1.0"
+description = "Actimagine FVMV video + GSM-style audio decoder (Pokemon Vol 1-4)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

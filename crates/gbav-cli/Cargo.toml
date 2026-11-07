@@ -1,0 +1,12 @@
+[package]
+name = "gbav-cli"
+version = "0.1.0"
+description = "gbav command line: list, decode, verify, stats"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+[[bin]]
+name = "gbav"
+path = "src/main.rs"

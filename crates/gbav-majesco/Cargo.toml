@@ -1,0 +1,9 @@
+[package]
+name = "gbav-majesco"
+version = "0.1.0"
+description = "Majesco shared layers: VQ frame format + codebook conversion + blit, ADPCM audio"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

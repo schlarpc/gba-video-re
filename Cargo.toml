@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/gbav-common",
+    "crates/gbav-rom",
+    "crates/gbav-vx",
+    "crates/gbav-fvmv",
+    "crates/gbav-majesco",
+    "crates/gbav-hydrogen",
+    "crates/gbav-ads",
+    "crates/gbav-cli",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/schlarpc/gba-video-vx"
+
+[profile.release]
+debug = 1
