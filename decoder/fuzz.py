@@ -19,7 +19,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from uc_oracle import Oracle, VXFILE, SLOT0 as SLOT0_ADDR  # noqa: E402
+from uc_oracle import Oracle, SLOT0 as SLOT0_ADDR  # noqa: E402
 SLOT0 = SLOT0_ADDR - 0x02000000
 
 W, H = 240, 160
@@ -174,7 +174,7 @@ def main():
         mem = bytes(rnd.getrandbits(8) for _ in range(4 * 0xF000))
         # ARM side
         rom = bytearray(rom0)
-        rom[VXFILE + 0x38:VXFILE + 0x38 + len(stream)] = stream
+        rom[o.vx + 0x38:o.vx + 0x38 + len(stream)] = stream
         o.rom = bytes(rom)
         o.reset(None)
         o.uc.mem_write(0x02000000 + SLOT0, mem)
