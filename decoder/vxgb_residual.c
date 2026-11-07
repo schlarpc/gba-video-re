@@ -130,6 +130,7 @@ static int coef4x4(vx_bits *bs, const int32_t s[8], uint8_t *dst, int step, unsi
             } else
                 run = vlc_tab(bs, vxgb_rb_tab[zl - 1], vxgb_rb_width[zl - 1]);
             if (run == 0) continue;
+            if ((int)run > zl) return -7;   /* ARM: zerosLeft < 0, zero-fill runs ~2^32 times */
             zl -= (int)run;
             if (p - (int)run < 0) return -6;
             while (run--) c[--p] = 0;
