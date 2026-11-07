@@ -9,14 +9,19 @@ dependencies = [
  "gbav-common",
  "gbav-hydrogen",
  "gbav-majesco",
+ "gbav-testkit",
 ]
 
 [[package]]
 name = "gbav-cli"
 version = "0.1.0"
 dependencies = [
+ "gbav-ads",
  "gbav-common",
+ "gbav-fvmv",
+ "gbav-hydrogen",
  "gbav-rom",
+ "gbav-vx",
 ]
 
 [[package]]
@@ -28,6 +33,7 @@ name = "gbav-fvmv"
 version = "0.1.0"
 dependencies = [
  "gbav-common",
+ "gbav-testkit",
 ]
 
 [[package]]
@@ -36,6 +42,7 @@ version = "0.1.0"
 dependencies = [
  "gbav-common",
  "gbav-majesco",
+ "gbav-testkit",
 ]
 
 [[package]]
@@ -43,6 +50,7 @@ name = "gbav-majesco"
 version = "0.1.0"
 dependencies = [
  "gbav-common",
+ "gbav-testkit",
 ]
 
 [[package]]
@@ -61,4 +69,5 @@ name = "gbav-vx"
 version = "0.1.0"
 dependencies = [
  "gbav-common",
+ "gbav-testkit",
 ]

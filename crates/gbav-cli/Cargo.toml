@@ -9,6 +9,10 @@ repository.workspace = true
 [dependencies]
 gbav-common = { path = "../gbav-common" }
 gbav-rom = { path = "../gbav-rom" }
+gbav-vx = { path = "../gbav-vx" }
+gbav-fvmv = { path = "../gbav-fvmv" }
+gbav-hydrogen = { path = "../gbav-hydrogen" }
+gbav-ads = { path = "../gbav-ads" }
 [[bin]]
 name = "gbav"
 path = "src/main.rs"
