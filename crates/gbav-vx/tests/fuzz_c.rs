@@ -4,11 +4,58 @@
 //! count after every case.
 //!
 //!   GBAV_ROMS=... GBAV_VX_FUZZ=corpus.bin[,corpus2.bin] cargo test --release -p gbav-vx --test fuzz_c
+//!
+//! With `GBAV_CDIFF=1` and no `GBAV_VX_FUZZ`, the test builds the C reference
+//! (`make -C reference/vx/decoder` with the Shrek Rev 6 / Rev 5 ROMs) and generates a corpus of
+//! `GBAV_FUZZ_ITERS` cases (default 300) per variant itself; that needs python3 with the
+//! `unicorn` and `capstone` modules (the generators import the oracle helpers).
 
 mod common;
 
 use gbav_common::md5::{digest, to_hex as hex};
 use gbav_vx::{Core, Tables, Variant};
+
+/// Build libvxdec.so from reference/vx/decoder and write a fresh corpus (see the module docs).
+fn generate_corpus() -> Option<std::path::PathBuf> {
+    use std::process::Command;
+    gbav_testkit::cref_dir()?;
+    let tmp = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    // make can not take paths with spaces (No-Intro names): link the ROMs under short names
+    let link = |id: &str| -> Option<std::path::PathBuf> {
+        let l = tmp.join(format!("{id}.gba"));
+        let _ = std::fs::remove_file(&l);
+        std::os::unix::fs::symlink(gbav_testkit::rom_path(id)?, &l).ok()?;
+        Some(l)
+    };
+    let (pp, gb) = (link("shrek-rev6")?, link("shrek-rev5")?);
+    let repo = gbav_testkit::repo_root();
+    let dec = repo.join("reference/vx/decoder");
+    let st = Command::new("make")
+        .arg("-s")
+        .arg("-C")
+        .arg(&dec)
+        .arg(format!("ROM={}", pp.display()))
+        .arg(format!("VXGB_ROM={}", gb.display()))
+        .arg("libvxdec.so")
+        .status()
+        .expect("run make");
+    assert!(st.success(), "make -C reference/vx/decoder failed");
+    let out = tmp.join("vx_fuzz.bin");
+    let st = Command::new("python3")
+        .arg(repo.join("crates/gbav-vx/tests/fuzz/gen_corpus.py"))
+        .arg("--lib")
+        .arg(dec.join("libvxdec.so"))
+        .arg("--vxpp-rom")
+        .arg(&pp)
+        .arg("--vxgb-rom")
+        .arg(&gb)
+        .args(["--cases", &gbav_testkit::fuzz_iters().to_string(), "--seed", "1", "--out"])
+        .arg(&out)
+        .status()
+        .expect("run python3");
+    assert!(st.success(), "gen_corpus.py failed (needs python3 with unicorn and capstone)");
+    Some(out)
+}
 
 fn rd32(b: &[u8], p: &mut usize) -> u32 {
     let v = u32::from_le_bytes(b[*p..*p + 4].try_into().unwrap());
@@ -18,9 +65,15 @@ fn rd32(b: &[u8], p: &mut usize) -> u32 {
 
 #[test]
 fn fuzz_against_c() {
-    let Some(corpora) = std::env::var_os("GBAV_VX_FUZZ") else {
-        eprintln!("GBAV_VX_FUZZ not set: skipping");
-        return;
+    let corpora = match std::env::var_os("GBAV_VX_FUZZ") {
+        Some(c) => c,
+        None => match generate_corpus() {
+            Some(c) => c.into_os_string(),
+            None => {
+                eprintln!("GBAV_VX_FUZZ not set and GBAV_CDIFF not enabled (or no ROMs): skipping");
+                return;
+            }
+        },
     };
     let (Some(pp), Some(gb)) = (
         common::load_rom(&common::cart("shrek-rev6")),
