@@ -75,3 +75,14 @@ cargo test --release -p gbav-majesco -p gbav-hydrogen -p gbav-ads -- --nocapture
 | `gbav-majesco --test diff_c` | vq.c (1,200 random codebooks/frames, all 8 modes, gains and biases), adpcm.c (300 random streams in random call sizes, both codings, overruns at the same sample), sx2_adpcm.c (300 resources, clip and wrap) |
 | `gbav-hydrogen --test diff_inflate` | hyinflate.c: 1,800 encoded (stored/fixed/dynamic) and corrupted streams in random request sizes, same offsets, bytes, error class (ok 1107 / err1 471 / err2 84 / err3 138) and end-marker check; stored-block quirks 1 and 2 hit in 499 / 103 runs; 600 real and corrupted All Grown Up blobs |
 | `gbav-ads --test diff_lzma` | lzma_dec.c: 600 random streams, 600 real and corrupted blobs (3 carts), random slice sizes, same error class and ring after every call |
+
+## Rust vs C wall time (whole cart, single thread, best of 3, release; machine shared with other lanes)
+
+| cart | Rust | C |
+|---|---|---|
+| All Grown Up 1 (Hydrogen), video, 4 streams / 32,317 frames | 1.97 s (`hydrogen_decode_cart --video-only`) | 2.07 s (`hydec --stream 0..3`) |
+| All Grown Up 1, audio, 44.3 M samples | 0.84 s | n/a (hydec has no audio path) |
+| SRMTHFG (ADS), video, 4 streams / 29,362 frames | 3.16 s (`ads_decode_cart --video-only`) | 3.24 s (`adsdec --stream 0..3`) |
+| SRMTHFG, audio, 40.3 M samples | 0.85 s | 1.31 s (`adsdec --wav /dev/null`) |
+
+The C times include process start and ROM load per stream (about 10 ms each).
