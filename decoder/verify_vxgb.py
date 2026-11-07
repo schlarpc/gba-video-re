@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify vxdec's VXGB mode against ground truth for a GBA Video Rev 5 cartridge
-(Shark Tale or Shrek 2). See docs/vxgb.md.
+(Shrek, Shark Tale or Shrek 2). See docs/vxgb.md.
 
   verify_vxgb.py ROM [--manifest] [--seek [--seek-frames K]] [--oracle N] [--audio]
                      (default: --manifest --seek)
@@ -43,6 +43,7 @@ MOVIES = {
     # cart then plays misaligned AFrames; only the blocks before that are the codec's output.
     # Digest of all 709698 played blocks: 2e831e52abb536df79fd9ca58bf1fc4a.
     "5cd627e205020297b25d707131883be5850515fe": ("shrek2-rev5_20200", 296039, "2a0d1aa3b4308d6f55c7792125deb312"),
+    "2dedea86ec289a0e31089299613d9f74cca03609": ("shrek-rev5_20200", 691796, "3e874f0c81f59a958050fa9826309b39"),
 }
 
 
@@ -169,7 +170,7 @@ def main():
     romb = open(a.rom, "rb").read()
     mv = MOVIES.get(hashlib.sha1(romb).hexdigest())
     if romb[VX:VX + 4] != b"VXGB" or not mv:
-        sys.exit("not a known VXGB cartridge (Shark Tale / Shrek 2 USA Rev 5)")
+        sys.exit("not a known VXGB cartridge (Shrek / Shark Tale / Shrek 2 USA Rev 5)")
     name = mv[0]
     if not (a.manifest or a.seek or a.oracle or a.audio):
         a.manifest = a.seek = True

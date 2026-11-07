@@ -33,7 +33,7 @@ def main():
     rom = open(a.rom, "rb").read()
     sha = hashlib.sha1(rom).hexdigest()
     magic, nframes, w, h = struct.unpack_from("<4s3I", rom, a.stream)
-    assert magic == b"VX++"
+    assert magic in (b"VX++", b"VXGB")
 
     rows = list(csv.DictReader(open(os.path.join(a.capdir, "frames", "index.csv"))))
     frames = sorted(int(r["frame"]) for r in rows)

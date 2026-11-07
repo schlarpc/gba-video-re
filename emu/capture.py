@@ -59,7 +59,8 @@ PRESS_FRAMES = 5
 SCREEN_W, SCREEN_H = 240, 160
 CART_SHA1 = {"f23390b7a62c605fbce6730addc29d381488e076": "combo",
              "6128a476edb10e6839ac5bd2697e83b9b7a9b234": "rev5",    # Shark Tale Rev 5 (VXGB)
-             "5cd627e205020297b25d707131883be5850515fe": "rev5"}    # Shrek 2 Rev 5 (VXGB)
+             "5cd627e205020297b25d707131883be5850515fe": "rev5",    # Shrek 2 Rev 5 (VXGB)
+             "2dedea86ec289a0e31089299613d9f74cca03609": "rev5"}    # Shrek Rev 5 (VXGB)
 # Menu key presses (emu frame:button) that start each movie. Single-movie carts (Shrek,
 # Shark Tale, Shrek 2 Rev 6): A at the title = Play. Shrek + Shark Tale: the title lists
 # Shrek / Shark Tale; each has a submenu Play / Chapters / Controls / Credits, and Credits
