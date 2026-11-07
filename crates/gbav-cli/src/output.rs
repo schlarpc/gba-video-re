@@ -64,10 +64,11 @@ impl WavWriter {
         Ok(WavWriter { file, samples: 0 })
     }
 
-    pub fn write(&mut self, pcm: &[i16]) -> io::Result<()> {
+    /// Write samples, saturated to 16 bits.
+    pub fn write(&mut self, pcm: &[i32]) -> io::Result<()> {
         let mut b = Vec::with_capacity(pcm.len() * 2);
-        for s in pcm {
-            b.extend_from_slice(&s.to_le_bytes());
+        for &s in pcm {
+            b.extend_from_slice(&(s.clamp(i16::MIN as i32, i16::MAX as i32) as i16).to_le_bytes());
         }
         self.samples += pcm.len() as u32;
         self.file.write_all(&b)
