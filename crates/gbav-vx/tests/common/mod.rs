@@ -141,3 +141,18 @@ pub fn pcm_reference(short: &str, off: usize) -> Option<Vec<(String, String)>> {
 pub fn index_of(v: &[(String, String)]) -> HashMap<String, usize> {
     v.iter().enumerate().map(|(i, (y, _))| (y.clone(), i)).collect()
 }
+
+/// Frame start bits from the independent grammar walker (container/vxvwalk.py), when the repo
+/// ships them: nframes + 1 entries (the last = end of the last frame).
+pub fn frame_bits(short: &str, off: usize) -> Option<Vec<u32>> {
+    let name = if short == "shrek-rev6" && off == 0x20200 {
+        "frame_bits.json.gz".to_string()
+    } else {
+        format!("{short}_{off:x}.frame_bits.json.gz")
+    };
+    let txt = gunzip(&find_manifest(&name)?);
+    let s = &txt[txt.find("\"frame_start_bits\"")?..];
+    let s = &s[s.find('[')? + 1..];
+    let s = &s[..s.find(']')?];
+    Some(s.split(',').map(|x| x.trim().parse().unwrap()).collect())
+}

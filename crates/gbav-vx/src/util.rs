@@ -144,6 +144,41 @@ pub fn md5_hex_u16(px: &[u16]) -> String {
     hex(&m.finish())
 }
 
+/// The GBA audio output stage of the VX player (IWRAM 0x03006a54..0x03006b54): 4x linear
+/// interpolation of each sample (3p+c)/4, (p+c)/2, (p+3c)/4, c, then an 8-bit quantiser with
+/// error feedback (noise shaping) for Direct Sound at 4x the sample rate. Exact 32-bit
+/// wraparound; the interpolation sums are exact (as container/vxaudio.py computes them).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Interp4Shaper {
+    pub e: i32,
+    pub fb: i32,
+    pub prev: i32,
+}
+
+impl Interp4Shaper {
+    /// `out.len()` must be `4 * samples.len()`; bytes are signed 8-bit.
+    pub fn run(&mut self, samples: &[i32], out: &mut [u8]) {
+        assert_eq!(out.len(), 4 * samples.len());
+        let (mut e, mut fb, mut prev) = (self.e, self.fb, self.prev);
+        let mut k = 0;
+        for &cur in samples {
+            let (p, c) = (prev as i64, cur as i64);
+            for x in [(3 * p + c) >> 2, (c + p) >> 1, (3 * c + p) >> 2, c] {
+                let x = x as i32;
+                let q = (x.wrapping_add(0x80).wrapping_sub(fb) >> 8).clamp(-128, 127);
+                let ne = (q << 8).wrapping_sub(x);
+                fb = e.wrapping_add(ne.wrapping_mul(2));
+                fb = fb.wrapping_sub(fb >> 4);
+                e = ne;
+                out[k] = q as u8;
+                k += 1;
+            }
+            prev = cur;
+        }
+        *self = Interp4Shaper { e, fb, prev };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

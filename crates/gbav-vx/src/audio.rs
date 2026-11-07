@@ -9,6 +9,8 @@
 //! AFrame: LE halfwords w1, w2, then 8/5/4/3 pulse words (mode = (w2>>12)&3); 128 samples at
 //! 16384 Hz.
 
+use crate::util::Interp4Shaper;
+
 pub const CODEBOOK_SIZE: usize = 3124;
 pub const PULSE_WORDS: [usize; 4] = [8, 5, 4, 3];
 pub const PULSE_STRIDE: [usize; 4] = [3, 3, 4, 5];
@@ -68,9 +70,8 @@ pub struct AudioState {
     infl40: [i32; 8],
     scale: i32,
     toggle: usize,
-    sh_e: i32,
-    sh_fb: i32,
-    sh_prev: i32,
+    /// the output stage (0x03006a54..0x03006b54)
+    shaper: Interp4Shaper,
     /// oldest first, hist[7] = newest
     hist: [i32; 8],
     b: [[i32; 256]; 2],
@@ -85,9 +86,7 @@ impl AudioState {
             infl40: [0; 8],
             scale: 0,
             toggle: 0,
-            sh_e: 0,
-            sh_fb: 0,
-            sh_prev: 0,
+            shaper: Interp4Shaper::default(),
             hist: [0; 8],
             b: [[0; 256]; 2],
         }
@@ -189,9 +188,7 @@ impl AudioState {
             self.scale = self.c.scale_initial; // 0x030069c0
             self.toggle = 1;
             self.hist = [0; 8];
-            self.sh_e = 0;
-            self.sh_fb = 0;
-            self.sh_prev = 0;
+            self.shaper = Interp4Shaper::default();
             self.b[1][128..].fill(0);
             let (i0, i1, i2) = self.pulses(w1, w2, &words, 1);
             let infl = self.filter(self.c.lpc_base, i0, i1, i2);
@@ -237,30 +234,7 @@ impl AudioState {
         }
         self.toggle ^= 1;
         samples.copy_from_slice(&self.b[outb][..128]);
-        self.output(samples, out);
+        self.shaper.run(samples, out);
         n
-    }
-
-    /// 0x03006a54..0x03006b54: 4x interpolation + error-feedback 8-bit quantiser.
-    fn output(&mut self, samples: &[i32; SAMPLES], o: &mut [u8; OUT_BYTES]) {
-        let (mut e, mut fb, mut prev) = (self.sh_e, self.sh_fb, self.sh_prev);
-        let mut k = 0;
-        for &cur in samples {
-            let (p, c) = (prev as i64, cur as i64);
-            for x in [(3 * p + c) >> 2, (c + p) >> 1, (3 * c + p) >> 2, c] {
-                let x = x as i32; // s32()
-                let q = (x.wrapping_add(0x80).wrapping_sub(fb) >> 8).clamp(-128, 127);
-                let ne = (q << 8).wrapping_sub(x);
-                fb = e.wrapping_add(ne.wrapping_mul(2));
-                fb = fb.wrapping_sub(fb >> 4);
-                e = ne;
-                o[k] = q as u8;
-                k += 1;
-            }
-            prev = cur;
-        }
-        self.sh_e = e;
-        self.sh_fb = fb;
-        self.sh_prev = prev;
     }
 }
