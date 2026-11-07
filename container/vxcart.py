@@ -11,6 +11,7 @@ import hashlib
 import struct
 
 MAGIC = b'VX++'
+MAGICS = (b'VX++', b'VXGB')   # VXGB: Rev 5 player (docs/vxgb.md)
 PROG_TABLE = 0x8e4
 PROG_BASE = 0xa00
 PLAYER_PROG = 2
@@ -18,6 +19,7 @@ PLAYER_PROG = 2
 # Player builds seen so far: sha1 of the player program image (ROM 0x8a00, 0x10000 bytes).
 KNOWN_PLAYERS = {
     '7324ebf35a10601b8c09bcff008b76144e2734cb': 'VX++ player (Shrek, Shark Tale, Shrek 2 Rev 6; Shrek + Shark Tale Rev 5)',
+    '33a2f3a71000ac5dcfbe6791252eeb0916dc3a33': 'VXGB player (Shark Tale, Shrek 2 Rev 5)',
 }
 
 # Cartridges checked against the emulator (docs/carts in README.md). sha1 of the whole ROM.
@@ -26,6 +28,8 @@ KNOWN_CARTS = {
     '9bc5b60793b8a6de3b80eb2c213cd125e1fa468e': 'Shark Tale (USA) Rev 6',
     '3bcb4acc5da539bc1b91c9537bf7ffa081ded1d4': 'Shrek 2 (USA) Rev 6',
     'f23390b7a62c605fbce6730addc29d381488e076': 'Shrek + Shark Tale (USA) Rev 5',
+    '6128a476edb10e6839ac5bd2697e83b9b7a9b234': 'Shark Tale (USA) Rev 5 (VXGB)',
+    '5cd627e205020297b25d707131883be5850515fe': 'Shrek 2 (USA) Rev 5 (VXGB)',
 }
 
 
@@ -53,18 +57,21 @@ def player_sha1(rom):
 
 
 def find_streams(rom):
-    """Header offsets of all VX++ streams: the magic on a 0x200 boundary (the cart reads
-    512-byte sectors) with plausible dimensions."""
-    out, i = [], -1
-    while True:
-        i = rom.find(MAGIC, i + 1)
-        if i < 0:
-            return out
-        if i % 0x200:
-            continue
-        n, w, h = struct.unpack_from('<3I', rom, i + 4)
-        if 0 < n < 1 << 20 and 0 < w <= 240 and 0 < h <= 160 and not (w | h) & 15:
-            out.append(i)
+    """Header offsets of all VX++ (or VXGB) streams: the magic on a 0x200 boundary (the cart
+    reads 512-byte sectors) with plausible dimensions."""
+    out = []
+    for m in MAGICS:
+        i = -1
+        while True:
+            i = rom.find(m, i + 1)
+            if i < 0:
+                break
+            if i % 0x200:
+                continue
+            n, w, h = struct.unpack_from('<3I', rom, i + 4)
+            if 0 < n < 1 << 20 and 0 < w <= 240 and 0 < h <= 160 and not (w | h) & 15:
+                out.append(i)
+    return sorted(out)
 
 
 def parse_offset(s):

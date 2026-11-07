@@ -25,6 +25,9 @@ Video has no per-frame byte boundaries in the container: the movie is one contin
 MSB-first bitstream (read as little-endian halfwords) and only seek points are indexed.
 Per-frame video boundaries come from walking the macroblock grammar (vxvwalk.py), checked
 against all 194 interior seek offsets; audio is assigned to frames by the player's clocks.
+
+VXGB streams (GBA Video Rev 5 carts: Shark Tale, Shrek 2; docs/vxgb.md) use the same
+container; the video walk then uses the VXGB grammar and there is no per-frame QP field.
 """
 import os, struct, sys, wave
 
@@ -76,8 +79,9 @@ class VXContainer:
             base = self.find()
         self.H = H = base
         f = struct.unpack_from('<4s13I', rom, H)
-        if f[0] != MAGIC:
-            raise ValueError('no VX++ magic at 0x%x' % H)
+        if f[0] not in vxcart.MAGICS:
+            raise ValueError('no VX++ / VXGB magic at 0x%x' % H)
+        self.vxgb = f[0] == b'VXGB'
         (self.magic, self.nframes, self.width, self.height, self.timer3_reload,
          self.quantizer, self.sample_rate, self.audio_off, self.chapter_off,
          self.last_chapter_frame, self.seek_off, self.nseek, self.last_seek_frame,
@@ -171,12 +175,18 @@ def video_frame_bits(c, cache=True, verbose=False):
         if len(j['frame_start_bits']) == c.nframes + 1:
             return j['frame_start_bits'], j['frame_qp_field']
     sw = vxvwalk.swap16(bytes(c.video))
-    lut_rom = vxcart.player_layout(c.rom)["ewram"][0] + 0x10e4   # EWRAM 0x020010e4 (0x9ae4 in Shrek)
-    lut = c.rom[lut_rom:lut_rom + vxvwalk.LUT_SIZE]
+    if c.vxgb:   # one walker for the whole movie: the nC grids carry over as in the player
+        gbw = vxvwalk.PyWalkerGB(b'', vxvwalk.GBTables(c.rom))
+    else:
+        lut_rom = vxcart.player_layout(c.rom)["ewram"][0] + 0x10e4   # EWRAM 0x020010e4 (0x9ae4 in Shrek)
+        lut = c.rom[lut_rom:lut_rom + vxvwalk.LUT_SIZE]
     tail = c.video_tail_bits()
     starts, qs = [], []
     for s in c.segments():
-        st, q = vxvwalk.walk_segment(sw, lut, s[3], s[2], c.width, c.height)
+        if c.vxgb:
+            st, q = vxvwalk.walk_segment_gb(sw, None, s[3], s[2], c.width, c.height, gbw)
+        else:
+            st, q = vxvwalk.walk_segment(sw, lut, s[3], s[2], c.width, c.height)
         exp = s[4] if s[4] is not None else None
         if exp is not None and st[-1] != exp:
             raise ValueError('segment %d ends at bit %d, seek table says %d' % (s[0], st[-1], exp))
@@ -193,11 +203,14 @@ def video_frame_bits(c, cache=True, verbose=False):
 
 
 def cmd_info(c):
-    print('VX++ stream at ROM 0x%x' % c.H)
+    print('%s stream at ROM 0x%x' % (c.magic.decode(), c.H))
     print('  frames           %d' % c.nframes)
     print('  size             %dx%d (%dx%d MBs)' % (c.width, c.height, c.width // 16, c.height // 16))
     print('  timer3 reload    %d (0x%x) -> %.5f fps (3 ticks/frame, F/64)' % (c.timer3_reload, c.timer3_reload, c.fps))
-    print('  quantizer field  %d (unused by VX++ player)' % c.quantizer)
+    if c.vxgb:
+        print('  quantizer        %d (VXGB: the QP of every frame; no QP in the bitstream)' % c.quantizer)
+    else:
+        print('  quantizer field  %d (unused by VX++ player)' % c.quantizer)
     print('  sample rate      %d Hz (not read by player; hard-coded 128 AFrames/s x 128)' % c.sample_rate)
     print('  video            ROM 0x%x..0x%x (%d bytes)' % (c.video_start, c.video_end, c.video_end - c.video_start))
     print('  audio            ROM 0x%x..0x%x (%d bytes)' % (c.audio_start, c.audio_end, c.audio_end - c.audio_start))
@@ -233,6 +246,9 @@ def walk(c, verbose=True, video_frames=False):
     # each segment's first video frame starts with ue(v) QP != 0 (a leading 0 bit)
     qps = []
     for s in segs:
+        if c.vxgb:      # no frame header; the QP is hdr+0x14 for every frame
+            qps.append(c.quantizer)
+            continue
         br = BitReader(c.video, s[3])
         q = br.ue()
         qps.append(q)
@@ -409,7 +425,7 @@ def main(argv):
     c = VXContainer(rom, vxcart.pick_stream(rom, stream))
     if cmd == 'info':
         cmd_info(c)
-        print('VX++ streams (sector-aligned magic) in ROM:')
+        print('VX++/VXGB streams (sector-aligned magic) in ROM:')
         for i, h in enumerate(VXContainer.find_all(rom)):
             n, w, hh = struct.unpack_from('<3I', rom, h + 4)
             print('  %d  0x%x  %dx%d  %d frames' % (i, h, w, hh, n))
