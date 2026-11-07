@@ -1,46 +1,28 @@
-//! Whole-family verification against the lanes' hash manifests (GBAV_ROMS + GBAV_CREF):
-//! every frame and every audio call of the 13 Hydrogen carts (hydrogen/src/manifests), every frame
-//! and audio block of the Sonic X Vol 2 prototype (sonicx2-proto/src/manifests), plus cold-start
-//! seeks at every segment start and at every audio block.
+//! Whole-family verification against `verify/hydrogen/` (needs `GBAV_ROMS`): every frame of the
+//! 13 Hydrogen carts and the Sonic X Vol 2 prototype, their audio (per player call / per block
+//! when the large per-block manifests are present, else the ~30 s segment manifests), cold-start
+//! seeks at every segment start and at every audio block, and the trait's audio seek.
 //!
-//! Run in release: `GBAV_ROMS=... GBAV_CREF=... cargo test --release -p gbav-hydrogen --test verify -- --nocapture`
+//! `GBAV_ROMS=... cargo test --release -p gbav-hydrogen --test verify -- --nocapture`
 
-#[path = "../../gbav-majesco/tests/support/mod.rs"]
-#[macro_use]
-mod support;
-
-use gbav_common::{AudioDecoder, Codec, Frame, VideoDecoder};
+use gbav_common::manifest::{self, Manifest};
+use gbav_common::md5;
+use gbav_common::{AudioDecoder, Codec, Frame, Rom, VideoDecoder};
 use gbav_hydrogen::{Cart, Hydrogen};
-use gbav_majesco::adpcm::BLOCK;
-use support::{md5_hex, par_map, read_manifest};
+use gbav_majesco::audio::FRAME_SAMPLES_X16;
+use gbav_testkit as tk;
 
-const CARTS: &[(&str, &str)] = &[
-    ("agu1", "All Grown Up! - Volume 1 (USA)"),
-    ("sonicx1", "Sonic X - Volume 1 (USA)"),
-    ("yugioh", "Yu-Gi-Oh! - Yugi vs. Joey (USA, Europe)"),
-    ("sponge1", "SpongeBob SquarePants - Volume 1 (USA) (Rev 1)"),
-    ("sponge2", "SpongeBob SquarePants - Volume 2 (USA) (Rev 1)"),
-    ("fop1", "The Fairly OddParents! - Volume 1 (USA)"),
-    ("fop2", "The Fairly OddParents! - Volume 2 (USA) (Rev 1)"),
-    ("tmnt", "Teenage Mutant Ninja Turtles - Things Change (USA, Europe)"),
-    ("nick1", "Nicktoons Collection - Volume 1 (USA)"),
-    ("strawb1", "Strawberry Shortcake - Volume 1 (USA)"),
-    ("knd1", "Codename - Kids Next Door - Volume 1 (USA, Europe)"),
-    ("cn1", "Cartoon Network Collection - Volume 1 (USA, Europe)"),
-    ("dora1", "Dora the Explorer - Volume 1 (USA)"),
-];
-const PROTO: &str = "Sonic X - Volume 2 (USA) (Proto)";
+/// Manifest stream names of the prototype, in container order.
 const PROTO_STREAMS: &[&str] = &["ep103", "ep104", "intro"];
 
 #[derive(Default, Debug, Clone)]
 struct Tally {
     streams: usize,
-    frames: usize,
-    frames_ok: usize,
-    idx_ok: usize,
-    audio: usize,
-    audio_ok: usize,
-    samples: usize,
+    frames: u64,
+    frames_ok: u64,
+    audio: u64,
+    audio_ok: u64,
+    audio_unit: &'static str,
     seeks: usize,
     seeks_ok: usize,
     aseeks: usize,
@@ -53,10 +35,8 @@ impl Tally {
         self.streams += o.streams;
         self.frames += o.frames;
         self.frames_ok += o.frames_ok;
-        self.idx_ok += o.idx_ok;
         self.audio += o.audio;
         self.audio_ok += o.audio_ok;
-        self.samples += o.samples;
         self.seeks += o.seeks;
         self.seeks_ok += o.seeks_ok;
         self.aseeks += o.aseeks;
@@ -65,179 +45,160 @@ impl Tally {
     }
 }
 
-/// (frame md5 over the manifest lines, idx md5) for every frame, decoding front to back.
-fn decode_all(rom: &[u8], id: &str) -> Vec<(String, String, usize)> {
+/// md5 of every frame's manifest bytes, decoding front to back.
+fn decode_all(rom: &Rom, id: &str) -> Vec<String> {
     let mut v = Hydrogen::video(rom, id).unwrap();
     let mut out = Vec::new();
     while let Some(f) = v.next_frame().unwrap_or_else(|e| panic!("stream {id}: {e}")) {
-        out.push((md5_hex(f.manifest_bytes()), md5_hex(&f.index), f.lines));
+        out.push(md5::hex(f.manifest_bytes()));
     }
     out
 }
 
-/// Cold start at every segment start: first frame equals the sequential decode.
-fn seeks(rom: &[u8], id: &str, seq: &[(String, String, usize)], t: &mut Tally, name: &str) {
-    let info = &Hydrogen::streams(rom).unwrap()[id.parse::<usize>().unwrap()];
+/// The whole track, block by block: (s8 samples concatenated, md5 of each block).
+fn decode_track(rom: &Rom, id: &str) -> (Vec<i8>, Vec<String>) {
+    let mut a = Hydrogen::audio(rom, id).unwrap();
+    let (mut all, mut md5s) = (Vec::new(), Vec::new());
+    while a.next_block().unwrap() {
+        all.extend_from_slice(a.last_samples());
+        md5s.push(md5::hex(a.manifest_part(0)));
+    }
+    (all, md5s)
+}
+
+fn verify_stream(rom: &Rom, short: &str, id: &str, mname: &str, t: &mut Tally) {
+    let sname = format!("{short}_{mname}");
+    let paths = tk::stream_manifests("hydrogen", short, mname).unwrap();
+    let Some(m) = Manifest::load(&paths.frames).unwrap() else {
+        t.bad.push(format!("{sname}: no frame manifest"));
+        return;
+    };
+    t.streams += 1;
+    let seq = decode_all(rom, id);
+    let c = m.md5_cols()[0];
+    for r in 0..m.rows.len() {
+        let f = m.num(r, 0).unwrap() as usize;
+        t.frames += 1;
+        if seq.get(f) == Some(&m.rows[r][c]) {
+            t.frames_ok += 1;
+        } else if t.bad.len() < 50 {
+            t.bad.push(format!("{sname}: frame {f} differs"));
+        }
+    }
+    // cold start at every segment start
+    let info = Hydrogen::streams(rom).unwrap().into_iter().find(|s| s.id == id).unwrap();
     for &p in &info.seek_points {
         let mut v = Hydrogen::video(rom, id).unwrap();
         v.seek(p).unwrap();
         let f = v.next_frame().unwrap().unwrap();
         t.seeks += 1;
-        if md5_hex(f.manifest_bytes()) == seq[p as usize].0 {
+        if md5::hex(f.manifest_bytes()) == seq[p as usize] {
             t.seeks_ok += 1;
         } else {
-            t.bad.push(format!("{name}: cold seek to frame {p} differs"));
+            t.bad.push(format!("{sname}: cold seek to frame {p} differs"));
         }
     }
-}
-
-/// Audio cold starts at every block: equals the sequential decode of that block.
-fn audio_seeks(rom: &[u8], id: &str, seq_blocks: &[String], t: &mut Tally, name: &str) {
+    if info.audio_rate_hz.is_none() {
+        return;
+    }
+    // audio against the manifests
+    let check = if let Some(am) = Manifest::load(&paths.audio).unwrap() {
+        if am.col("n").is_some() {
+            // per player call
+            Some(manifest::check_audio_blocks(&mut Hydrogen::audio(rom, id).unwrap(), &am, &[], None).unwrap())
+        } else {
+            // per block (the prototype); the last row covers only what the cart decoded
+            let mut a = Hydrogen::audio(rom, id).unwrap();
+            let mut c = manifest::Check { total: am.rows.len() as u64, unit: "blocks", ..Default::default() };
+            for r in 0..am.rows.len() {
+                if !a.next_block().unwrap() {
+                    c.missing = (am.rows.len() - r) as u64;
+                    break;
+                }
+                let n = am.num(r, 1).unwrap() as usize;
+                let b = a.manifest_part(0);
+                if b.len() >= n && md5::hex(&b[..n]) == am.rows[r][2] {
+                    c.ok += 1;
+                } else if c.first_bad.is_none() {
+                    c.first_bad = Some(r as u64);
+                }
+            }
+            Some(c)
+        }
+    } else if let Some(sm) = Manifest::load(&paths.audio_seg).unwrap() {
+        Some(manifest::check_audio_segments(&mut Hydrogen::audio(rom, id).unwrap(), &sm, 1).unwrap())
+    } else {
+        eprintln!("{sname}: no audio manifest, audio not checked");
+        None
+    };
+    if let Some(c) = check {
+        t.audio += c.total;
+        t.audio_ok += c.ok;
+        t.audio_unit = c.unit;
+        if !c.passed() {
+            t.bad.push(format!("{sname}: audio {c}"));
+        }
+    }
+    // cold starts at every audio block, and the trait's seek at the video seek points
+    let (all, blocks) = decode_track(rom, id);
     let mut a = Hydrogen::audio(rom, id).unwrap();
-    for (i, want) in seq_blocks.iter().enumerate() {
-        a.seek_block(i).unwrap();
-        let b = a.next_block().unwrap().unwrap();
+    for (k, want) in blocks.iter().enumerate() {
+        a.seek_block(k).unwrap();
+        assert!(a.next_block().unwrap());
         t.aseeks += 1;
-        if &md5_hex(&b) == want {
+        if &md5::hex(a.manifest_part(0)) == want {
             t.aseeks_ok += 1;
         } else {
-            t.bad.push(format!("{name}: cold seek to audio block {i} differs"));
+            t.bad.push(format!("{sname}: cold seek to audio block {k} differs"));
+        }
+    }
+    for &p in info.seek_points.iter().take(8) {
+        let first = (p as u64 * FRAME_SAMPLES_X16 / 16) as usize;
+        if first + 1000 > all.len() {
+            continue;
+        }
+        let mut a = Hydrogen::audio(rom, id).unwrap();
+        a.seek(p).unwrap();
+        assert!(a.decode_samples(1000).unwrap());
+        t.aseeks += 1;
+        if a.last_samples() == &all[first..first + 1000] {
+            t.aseeks_ok += 1;
+        } else {
+            t.bad.push(format!("{sname}: AudioDecoder::seek({p}) differs"));
         }
     }
 }
 
-fn block_md5s(rom: &[u8], id: &str) -> Vec<String> {
-    let mut a = Hydrogen::audio(rom, id).unwrap();
-    let mut v = Vec::new();
-    while let Some(b) = a.next_block().unwrap() {
-        v.push(md5_hex(&b));
-    }
-    v
-}
-
-fn verify_cart(short: &str, name: &str, man: &std::path::Path) -> Tally {
+fn verify_cart(short: &str) -> Tally {
     let mut t = Tally::default();
-    let Some(rom) = support::load_rom(name) else {
+    let Some(rom) = tk::load_rom(short) else {
         t.bad.push(format!("{short}: ROM missing"));
         return t;
     };
     let cart = Cart::open(&rom).unwrap();
+    if short == "sx2p" {
+        assert_eq!(cart.player.output, gbav_majesco::adpcm::Output::Wrap, "proto ADPCM store not detected");
+    }
     for i in 0..cart.streams.len() {
-        let sname = format!("{short}_{i}");
         let id = i.to_string();
-        let Some(rows) = read_manifest(&man.join(format!("{sname}.frame_md5.csv.gz"))) else {
-            t.bad.push(format!("{sname}: no manifest"));
-            continue;
-        };
-        t.streams += 1;
-        let seq = decode_all(&rom, &id);
-        assert_eq!(seq.len() as u32, cart.streams[i].frames);
-        for r in &rows {
-            let f: i64 = r[0].parse().unwrap();
-            t.frames += 1;
-            let got = (f >= 0).then(|| &seq[f as usize]);
-            if got.is_some_and(|g| g.0 == r[1]) {
-                t.frames_ok += 1;
-            } else if t.bad.len() < 50 {
-                t.bad.push(format!("{sname}: frame {f} differs"));
-            }
-            if got.is_some_and(|g| g.1 == r[2]) {
-                t.idx_ok += 1;
-            }
-        }
-        seeks(&rom, &id, &seq, &mut t, &sname);
-        // audio: the player's calls (sizes from the manifest), md5 of each call's output
-        let arows = read_manifest(&man.join(format!("{sname}.audio_md5.csv.gz"))).unwrap();
-        let mut a = Hydrogen::audio(&rom, &id).unwrap();
-        for r in &arows {
-            let n: usize = r[2].parse().unwrap();
-            let mut buf = vec![0i8; n];
-            let got = a.decode(&mut buf);
-            t.audio += 1;
-            t.samples += n;
-            let bytes: Vec<u8> = buf.iter().map(|&s| s as u8).collect();
-            if got == n && md5_hex(&bytes) == r[3] {
-                t.audio_ok += 1;
-            } else if t.bad.len() < 50 {
-                t.bad.push(format!("{sname}: audio call {} differs", r[0]));
-            }
-        }
-        audio_seeks(&rom, &id, &block_md5s(&rom, &id), &mut t, &sname);
+        let mname = if short == "sx2p" { PROTO_STREAMS[i].to_string() } else { id.clone() };
+        verify_stream(&rom, short, &id, &mname, &mut t);
     }
     t
-}
-
-fn verify_proto(man: &std::path::Path) -> Tally {
-    let mut t = Tally::default();
-    let Some(rom) = support::load_rom(PROTO) else {
-        t.bad.push("sx2p: ROM missing".into());
-        return t;
-    };
-    let cart = Cart::open(&rom).unwrap();
-    assert_eq!(cart.player.output, gbav_majesco::adpcm::Output::Wrap, "proto ADPCM store not detected");
-    for (i, sn) in PROTO_STREAMS.iter().enumerate() {
-        let sname = format!("sx2p_{sn}");
-        let id = i.to_string();
-        let rows = read_manifest(&man.join(format!("{sname}.frame_md5.csv.gz"))).unwrap();
-        t.streams += 1;
-        let seq = decode_all(&rom, &id);
-        assert_eq!(seq.len(), rows.len(), "{sname} frame count");
-        for (f, r) in rows.iter().enumerate() {
-            t.frames += 1;
-            let lines: usize = r[1].parse().unwrap();
-            if seq[f].0 == r[2] && seq[f].2 == lines {
-                t.frames_ok += 1;
-                t.idx_ok += 1;
-            } else if t.bad.len() < 50 {
-                t.bad.push(format!("{sname}: frame {f} differs (lines {} vs {lines})", seq[f].2));
-            }
-        }
-        seeks(&rom, &id, &seq, &mut t, &sname);
-        let arows = read_manifest(&man.join(format!("{sname}.audio_md5.csv.gz"))).unwrap();
-        let mut a = Hydrogen::audio(&rom, &id).unwrap();
-        for r in &arows {
-            let n: usize = r[1].parse().unwrap();
-            let b = a.next_block().unwrap().unwrap();
-            assert!(b.len() >= n && b.len() <= BLOCK, "{sname} block {} has {} samples", r[0], b.len());
-            t.audio += 1;
-            t.samples += n;
-            if md5_hex(&b[..n]) == r[2] {
-                t.audio_ok += 1;
-            } else if t.bad.len() < 50 {
-                t.bad.push(format!("{sname}: audio block {} differs", r[0]));
-            }
-        }
-        audio_seeks(&rom, &id, &block_md5s(&rom, &id), &mut t, &sname);
-    }
-    t
-}
-
-#[test]
-fn md5_agrees() {
-    let mut r = support::Rng::new(9);
-    for n in [0, 1, 55, 56, 63, 64, 65, 119, 120, 1000, 76800] {
-        let b = r.bytes(n);
-        assert_eq!(md5_hex(&b), gbav_common::md5::hex(&b));
-    }
 }
 
 #[test]
 fn hydrogen_family_matches_manifests() {
-    let (Some(_), Some(suite)) = (support::roms_dir(), support::cref_dir()) else {
-        return eprintln!("skip: GBAV_ROMS / GBAV_CREF not set");
-    };
-    let hman = suite.join("hydrogen/src/manifests");
-    let pman = suite.join("sonicx2-proto/src/manifests");
-    let mut jobs: Vec<(&str, &str)> = CARTS.iter().copied().filter(|(s, _)| support::only(s)).collect();
-    if support::only("sx2p") {
-        jobs.push(("sx2p", PROTO));
+    if tk::roms_dir().is_none() || tk::verify_dir().is_none() {
+        return tk::skip("GBAV_ROMS not set (or verify/ not found)");
     }
+    let jobs: Vec<String> = tk::carts("hydrogen").into_iter().map(|c| c.short_id).filter(|s| tk::only(s)).collect();
     let t0 = std::time::Instant::now();
-    let res = par_map(&jobs, |&(short, name)| {
-        let t = if short == "sx2p" { verify_proto(&pman) } else { verify_cart(short, name, &hman) };
+    let res = tk::par_map(&jobs, |short| {
+        let t = verify_cart(short);
         eprintln!(
-            "{short:8} streams {:2} frames {}/{} idx {} audio {}/{} seeks {}/{} audio seeks {}/{}",
-            t.streams, t.frames_ok, t.frames, t.idx_ok, t.audio_ok, t.audio, t.seeks_ok, t.seeks, t.aseeks_ok, t.aseeks
+            "{short:8} streams {:2} frames {}/{} audio {}/{} {} seeks {}/{} audio seeks {}/{}",
+            t.streams, t.frames_ok, t.frames, t.audio_ok, t.audio, t.audio_unit, t.seeks_ok, t.seeks, t.aseeks_ok, t.aseeks
         );
         t
     });
@@ -246,9 +207,9 @@ fn hydrogen_family_matches_manifests() {
         tot.add(t);
     }
     eprintln!(
-        "TOTAL {} streams: frames {}/{}, audio {}/{} ({} samples), segment seeks {}/{}, audio block seeks {}/{} in {:.1}s",
-        tot.streams, tot.frames_ok, tot.frames, tot.audio_ok, tot.audio, tot.samples, tot.seeks_ok, tot.seeks,
-        tot.aseeks_ok, tot.aseeks, t0.elapsed().as_secs_f64()
+        "TOTAL {} streams: frames {}/{}, audio {}/{} (calls, blocks or segments), segment seeks {}/{}, audio seeks {}/{} in {:.1}s",
+        tot.streams, tot.frames_ok, tot.frames, tot.audio_ok, tot.audio, tot.seeks_ok, tot.seeks, tot.aseeks_ok, tot.aseeks,
+        t0.elapsed().as_secs_f64()
     );
     for b in tot.bad.iter().take(30) {
         eprintln!("  {b}");

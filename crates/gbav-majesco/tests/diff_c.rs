@@ -1,17 +1,16 @@
 //! Differential fuzz of the Rust VQ and ADPCM layers against the lanes' C reference
-//! (`majesco-shared/src/{vq,adpcm}.c`, and `sonicx2-proto/src/audio/sx2_adpcm.c` for the
-//! prototype's unclipped output stage), on random and corrupted inputs. Skips without GBAV_CREF.
+//! (`reference/majesco/{vq,adpcm}.c`, and `reference/sonicx2-proto/audio/sx2_adpcm.c` for the
+//! prototype's unclipped output stage), on random and corrupted inputs. Skips unless GBAV_CDIFF=1 (C sources from reference/).
 
-#[path = "support/mod.rs"]
-#[macro_use]
-mod support;
+use gbav_testkit as support;
+use gbav_testkit::csym;
 
 use gbav_majesco::adpcm::{Adpcm, CtabCoding, Output};
 use gbav_majesco::vq::{self, Mode, Row159, Tables, Vcb};
 use support::{CLib, Rng};
 
 fn majesco_lib() -> Option<CLib> {
-    CLib::build("mjshared", &["majesco-shared/src/vq.c", "majesco-shared/src/adpcm.c"], &[])
+    CLib::build("mjshared", &["majesco/vq.c", "majesco/adpcm.c"], &[], std::path::Path::new(env!("CARGO_TARGET_TMPDIR")))
 }
 
 type Unpredict = extern "C" fn(*mut u8, i32, i32);
@@ -21,7 +20,7 @@ type Blit = extern "C" fn(*const u8, i32, *const u16, *const u16, *mut u16);
 
 #[test]
 fn vq_matches_c() {
-    let Some(lib) = majesco_lib() else { return eprintln!("skip: GBAV_CREF not set") };
+    let Some(lib) = majesco_lib() else { return eprintln!("skip: C differential tests off (set GBAV_CDIFF=1)") };
     let c_unpredict: Unpredict = csym!(lib, "mvq_unpredict");
     let c_init: Init = csym!(lib, "mvq_init");
     let c_convert: Convert = csym!(lib, "mvq_convert");
@@ -113,7 +112,7 @@ fn adpcm_payload(r: &mut Rng) -> Vec<u8> {
 
 #[test]
 fn adpcm_matches_c() {
-    let Some(lib) = majesco_lib() else { return eprintln!("skip: GBAV_CREF not set") };
+    let Some(lib) = majesco_lib() else { return eprintln!("skip: C differential tests off (set GBAV_CDIFF=1)") };
     let c_init: MjInit = csym!(lib, "mj_adpcm_init");
     let c_seek: MjSeek = csym!(lib, "mj_adpcm_seek");
     let c_dec: MjDecode = csym!(lib, "mj_adpcm_decode");
@@ -154,8 +153,8 @@ fn adpcm_matches_c() {
 
 #[test]
 fn adpcm_wrap_matches_sx2() {
-    let Some(lib) = CLib::build("sx2adpcm", &["sonicx2-proto/src/audio/sx2_adpcm.c"], &[]) else {
-        return eprintln!("skip: GBAV_CREF not set");
+    let Some(lib) = CLib::build("sx2adpcm", &["sonicx2-proto/audio/sx2_adpcm.c"], &[], std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))) else {
+        return eprintln!("skip: C differential tests off (set GBAV_CDIFF=1)");
     };
     type Parse = extern "C" fn(*const u8, usize, *mut u8) -> i32;
     type Sx2Init = extern "C" fn(*mut u8, *const u8, i32);

@@ -1,13 +1,12 @@
-//! Differential fuzz of the Rust Inflate against `hydrogen/src/hyinflate.c` (GBAV_CREF):
-//! random streams from a test encoder (a port of `hydrogen/src/hyenc.py`: stored blocks at every
+//! Differential fuzz of the Rust Inflate against `reference/hydrogen/hyinflate.c` (GBAV_CDIFF=1):
+//! random streams from a test encoder (a port of `tools/hydrogen/hyenc.py`: stored blocks at every
 //! alignment and parity, fixed blocks, dynamic blocks with all code-length codes, all length and
 //! distance codes), corrupted versions of them, and (with GBAV_ROMS) real and corrupted blobs
 //! from a cart, each decoded in random request sizes. Compared per request: the returned offset,
 //! the error class (C `err` 1/2/3), and the output bytes; plus the end-marker check.
 
-#[path = "../../gbav-majesco/tests/support/mod.rs"]
-#[macro_use]
-mod support;
+use gbav_testkit as support;
+use gbav_testkit::csym;
 
 use gbav_hydrogen::inflate::Inflate;
 use support::{CLib, Rng};
@@ -356,7 +355,7 @@ struct C {
 }
 
 fn clib() -> Option<C> {
-    let lib = CLib::build("hyinflate", &["hydrogen/src/hyinflate.c"], &[])?;
+    let lib = CLib::build("hyinflate", &["hydrogen/hyinflate.c"], &[], std::path::Path::new(env!("CARGO_TARGET_TMPDIR")))?;
     Some(C {
         run: csym!(lib, "hyinf_run_chunks"),
         init: csym!(lib, "hyinf_init"),
@@ -484,7 +483,7 @@ fn inflate_round_trips_encoded_streams() {
 
 #[test]
 fn inflate_matches_c_on_encoded_streams() {
-    let Some(c) = clib() else { return eprintln!("skip: GBAV_CREF not set") };
+    let Some(c) = clib() else { return eprintln!("skip: C differential tests off (set GBAV_CDIFF=1)") };
     let mut r = Rng::new(11);
     let iters = support::fuzz_iters() * 3;
     let mut stats = [0usize; 4]; // ok, err1, err2, err3
@@ -528,8 +527,8 @@ fn inflate_matches_c_on_encoded_streams() {
 
 #[test]
 fn inflate_matches_c_on_cart_blobs() {
-    let Some(c) = clib() else { return eprintln!("skip: GBAV_CREF not set") };
-    let Some(rom) = support::load_rom("All Grown Up! - Volume 1 (USA)") else { return eprintln!("skip: GBAV_ROMS not set") };
+    let Some(c) = clib() else { return eprintln!("skip: C differential tests off (set GBAV_CDIFF=1)") };
+    let Some(rom) = support::load_rom("agu1") else { return eprintln!("skip: GBAV_ROMS not set") };
     let cart = gbav_hydrogen::Cart::open(&rom).unwrap();
     let mut r = Rng::new(12);
     let segs: Vec<_> = cart.streams.iter().flat_map(|s| s.segments.iter().cloned()).collect();

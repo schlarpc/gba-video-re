@@ -4,7 +4,7 @@
 //! `gbav-majesco`; the two Hydrogen-packaged LZMA carts are decoded by `gbav-ads`, which reuses
 //! [`container`] and [`engine`].
 //!
-//! Spec: `hydrogen/docs/format-hydrogen.md`; reference C: `hydrogen/src/{hydec,hyinflate}.c`.
+//! Spec: `docs/hydrogen/format.md`; reference C: `reference/hydrogen/{hydec,hyinflate}.c`.
 
 pub mod container;
 pub mod engine;
@@ -13,7 +13,7 @@ pub mod video;
 
 use container::{find_containers, Container, VideoStream};
 use engine::Player;
-use gbav_common::{Codec, Error, Result, StreamInfo};
+use gbav_common::{Chapter, Codec, Error, Result, Rom, StreamInfo};
 use gbav_majesco::adpcm::CtabCoding;
 use gbav_majesco::audio::{AudioTrack, TrackDecoder};
 pub use video::HyVideo;
@@ -80,6 +80,14 @@ impl Cart {
             fps_den: gbav_majesco::FPS_DEN,
             frames: s.frames,
             seek_points: s.seek_points(),
+            chapters: s
+                .chapters
+                .iter()
+                .filter_map(|c| {
+                    let g = s.segments.get(c.segment as usize)?;
+                    Some(Chapter { frame: g.frame, title: Some(c.name.clone()).filter(|t| !t.is_empty()) })
+                })
+                .collect(),
             audio_rate_hz: self.containers[i].audio.map(|_| gbav_majesco::adpcm::RATE),
         }
     }
@@ -103,13 +111,13 @@ impl Codec for Hydrogen {
         Ok((0..c.streams.len()).map(|i| c.info(i)).collect())
     }
 
-    fn video(rom: &[u8], stream: &str) -> Result<HyVideo> {
+    fn video(rom: &Rom, stream: &str) -> Result<HyVideo> {
         let c = Cart::open(rom)?;
         let i = c.index(stream)?;
         HyVideo::new(rom, c.streams[i].clone(), &c.player, c.gain_bias(i))
     }
 
-    fn audio(rom: &[u8], stream: &str) -> Result<TrackDecoder> {
+    fn audio(rom: &Rom, stream: &str) -> Result<TrackDecoder> {
         let c = Cart::open(rom)?;
         let i = c.index(stream)?;
         Ok(TrackDecoder::new(rom, c.audio_track(rom, i)?, CtabCoding::Flat, c.player.output))

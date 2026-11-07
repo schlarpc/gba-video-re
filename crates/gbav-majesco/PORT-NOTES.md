@@ -1,13 +1,13 @@
 # Port notes: Majesco lane (gbav-majesco, gbav-hydrogen, gbav-ads)
 
-Rust port of the Majesco reference decoders (`tmp/suite/{majesco-shared,hydrogen,ads,sonicx2-proto}`).
+Rust port of the Majesco reference decoders (`reference/{majesco,hydrogen,ads,sonicx2-proto}`).
 Pure Rust, no dependencies outside the workspace, no `unsafe` outside the test harness.
 
 ## Crates
 
 | crate | contents |
 |---|---|
-| `gbav-majesco` | `vq` (segment word, unpredict, convert with dither and gain, blit for all 8 modes, line 159 as `Row159::{Palette, Untouched}`), `adpcm` (both context-table codings, `Output::{Clip, Wrap}`), `audio` (type-2 resource, `TrackDecoder`), `VqFrame` |
+| `gbav-majesco` | `vq` (segment word, unpredict, convert with dither and gain, blit for all 8 modes, line 159 as `Row159::{Palette, Untouched}`), `adpcm` (both context-table codings, `Output::{Clip, Wrap}`), `audio` (type-2 resource, `TrackDecoder`), `VqFrame`; re-exports `gbav_common::bytes::{rd16, rd32, ArcSlice, deobfuscate}` |
 | `gbav-hydrogen` | `container` (container scan, video header, segments), `engine` (player tables and variant detection), `inflate` (cart-exact Inflate), `HyVideo`, `Hydrogen: Codec` |
 | `gbav-ads` | `archive` (SFCD, `.mmstr`, Settings, Hydrogen packaging), `lzma` (fixed lc/lp/pb, ring output), `AdsVideo`, `Ads: Codec` |
 
@@ -15,14 +15,22 @@ Pure Rust, no dependencies outside the workspace, no `unsafe` outside the test h
 
 - Stream ids: Hydrogen = container index in ROM order (`"0"` is the logo). ADS = SFCD member
   name with spaces as underscores (`movie_1`, `logo_majesco`, `jingle`), or `res<N>` on the two
-  Hydrogen-packaged LZMA carts. These are the manifest names.
+  Hydrogen-packaged LZMA carts. These are the ADS manifest names; Hydrogen manifests are
+  `<short>_<index>`, except the Sonic X Vol 2 proto's (`sx2p_ep103`, `sx2p_ep104`, `sx2p_intro`
+  for indices 0, 1, 2).
+- Decoders keep the shared ROM (`Rom` = `Arc<[u8]>`, via `ArcSlice`); no stream or track bytes are
+  copied. `StreamInfo::chapters` comes from the chapter records (segment / chunk start + name).
 - `Frame::manifest_bytes` = the framebuffer lines the blit wrote: all 160 lines (row 159 filled
   from the zero BG palette), except 159 lines in modes 2..5 on the Sonic X Vol 2 proto, whose blit
   never writes row 159.
-- `AudioDecoder::next_block` = one coded block (16458 s8 samples). The Hydrogen manifests hash the
-  player's calls (4096, then 1371/1372 split at the 4096-byte ring wrap); use
-  `TrackDecoder::decode(&mut [i8])` for arbitrary sizes. `last_pcm` is the s8 output `<< 8`.
-  A track's last block can end inside the padding: `next_block` returns it short and then `None`.
+- Audio (`TrackDecoder`): `next_block` = one coded block (16458 s8 samples; a track's last block
+  can end inside the padding and is then returned short, after which the track ends);
+  `decode_samples(n)` = one player call (the Hydrogen manifests hash the player's calls: 4096,
+  then 1371/1372 split at the 4096-byte ring wrap); `manifest_part(0)` = the s8 output of the last
+  block or call as bytes; `pcm()` = the same samples as `s8 << 8` (i32; the native output is
+  8-bit); `key().index` = block number for `next_block`, call number for `decode_samples`;
+  `seek(frame)` = cold start at the block holding video frame `frame` (12 frames per block,
+  every block is a restart block), then decode and discard up to floor(frame * 1371.5625).
 - `VideoDecoder::seek` accepts segment starts only; `seek_any` decodes forward from the segment.
 - fps = 2^24 / (5 * 280896) (`FPS_NUM`/`FPS_DEN`); audio 16384 Hz.
 
@@ -46,35 +54,34 @@ Pure Rust, no dependencies outside the workspace, no `unsafe` outside the test h
 - The Noah proto intro's 41 stale-codebook frames are decoded as intended (like the C decoder);
   `AdsVideo::segment_vcb` reproduces what the cartridge shows (codebook of the chunk 8 earlier).
 
-## Requests for gbav-common
+## Open request for gbav-common
 
-1. `md5::digest` allocates a `Vec` per 64-byte block and copies the input; hashing ~80 GB of
-   framebuffers in verification needs a streaming version (the tests carry one in
-   `gbav-majesco/tests/support/mod.rs`, cross-checked against `gbav_common::md5`).
-2. Hoist candidates: `util::{rd16, rd32, ArcSlice, deobfuscate}`; the test support module
-   (env gates, PRNG, manifest reader via `gzip -dc`, `par_map`, and `CLib`, which compiles the
-   C reference into a shared library and loads it with `dlopen`).
-3. The `Codec` trait methods take `&[u8]` without a lifetime, so decoders copy the stream bytes
-   they need (a few MB). A `rom: Arc<[u8]>` parameter would avoid the copy.
-4. `AudioDecoder::next_block` has no way to express the Hydrogen manifests' call sizes; a
-   `decode(n)` method on the trait would let the CLI verify them generically.
+The ADS and Sonic X proto per-block audio manifests (`block,samples,md5`) hash only the first
+`samples` bytes of a stream's last block (as far as the cartridge decoded it before the
+stream ended), while `next_block` returns the whole coded block. `manifest::check_audio_blocks`
+compares the whole part, so the generic check fails on that last row; the crate tests do the
+prefix comparison themselves. `check_audio_blocks` (and `make_segments`) should hash only the
+first `samples` bytes when a `samples` column is present.
 
-`Cargo.lock` in the workspace root changes because the three crates now depend on each other.
-
-## Verification (GBAV_ROMS, GBAV_CREF=/home/schlarpc/re-shell/tmp/suite)
+## Verification (GBAV_ROMS; GBAV_CDIFF=1 for the C differential tests)
 
 ```
-cargo test --release -p gbav-majesco -p gbav-hydrogen -p gbav-ads -- --nocapture
+GBAV_ROMS=... GBAV_CDIFF=1 cargo test --release -p gbav-majesco -p gbav-hydrogen -p gbav-ads -- --nocapture
 ```
+
+Manifests come from `verify/hydrogen/` and `verify/ads/` (`gbav_common::manifest`, no system
+gzip); audio uses the per-block / per-call manifests when present, else the ~30 s segment
+manifests. The C references are compiled from `reference/` into the test tmpdir and loaded with
+`gbav_testkit::CLib`.
 
 | test | result |
 |---|---|
-| `gbav-hydrogen --test verify` (13 carts + Sonic X 2 proto, 65 streams) | 430,822 / 430,822 frames, 572,820 / 572,820 audio calls/blocks (590.7 M samples), 9,982 segment cold starts, 35,916 audio-block cold starts |
-| `gbav-ads --test verify` (19 ADS carts + Jimmy + Noah, 96 streams) | 621,421 / 621,462 frames + the 41 Noah stale-codebook frames (all equal to adsdec and all reproduced with the codebook 8 chunks earlier), 51,791 / 51,791 audio blocks, 15,536 chunk cold starts, 51,793 audio-block cold starts |
+| `gbav-hydrogen --test verify` (13 carts + Sonic X 2 proto, 65 streams) | 430,822 / 430,822 frames, 572,820 / 572,820 audio calls/blocks, 9,982 segment cold starts, 36,375 audio cold starts (every block via `seek_block`, plus `AudioDecoder::seek` at up to 8 seek points per stream) |
+| `gbav-ads --test verify` (19 ADS carts + Jimmy + Noah, 96 streams) | 621,421 / 621,462 frames + the 41 Noah stale-codebook frames (all reproduced with the codebook 8 chunks earlier, all equal to `adsdec` built from `reference/`, and exactly the `verify/known.csv` ranges, so `manifest::check_video` passes), 51,791 / 51,791 audio blocks, 15,536 chunk cold starts, 52,477 audio cold starts |
 | `gbav-ads --test classify` (all 46 ROMs) | 14 Hydrogen, 21 ADS, no overlap, VX/FVMV carts claimed by neither |
-| `gbav-majesco --test diff_c` | vq.c (1,200 random codebooks/frames, all 8 modes, gains and biases), adpcm.c (300 random streams in random call sizes, both codings, overruns at the same sample), sx2_adpcm.c (300 resources, clip and wrap) |
-| `gbav-hydrogen --test diff_inflate` | hyinflate.c: 1,800 encoded (stored/fixed/dynamic) and corrupted streams in random request sizes, same offsets, bytes, error class (ok 1107 / err1 471 / err2 84 / err3 138) and end-marker check; stored-block quirks 1 and 2 hit in 499 / 103 runs; 600 real and corrupted All Grown Up blobs |
-| `gbav-ads --test diff_lzma` | lzma_dec.c: 600 random streams, 600 real and corrupted blobs (3 carts), random slice sizes, same error class and ring after every call |
+| `gbav-majesco --test diff_c` | `reference/majesco/vq.c` (random codebooks/frames, all 8 modes, gains and biases), `adpcm.c` (random streams in random call sizes, both codings), `reference/sonicx2-proto/audio/sx2_adpcm.c` (clip and wrap) |
+| `gbav-hydrogen --test diff_inflate` | `reference/hydrogen/hyinflate.c`: encoded (stored/fixed/dynamic) and corrupted streams in random request sizes, stored-block quirks, real and corrupted All Grown Up blobs |
+| `gbav-ads --test diff_lzma` | `reference/ads/lzma_dec.c`: random streams, real and corrupted blobs (3 carts), random slice sizes |
 
 ## Rust vs C wall time (whole cart, single thread, best of 3, release; machine shared with other lanes)
 

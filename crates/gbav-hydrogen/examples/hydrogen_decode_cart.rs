@@ -6,7 +6,7 @@ use std::time::Instant;
 
 fn main() {
     let a: Vec<String> = std::env::args().collect();
-    let rom = std::fs::read(&a[1]).expect("read ROM");
+    let rom: gbav_common::Rom = std::fs::read(&a[1]).expect("read ROM").into();
     let (video, audio) = (!a.iter().any(|x| x == "--audio-only"), !a.iter().any(|x| x == "--video-only"));
     let only = a.iter().position(|x| x == "--stream").map(|i| a[i + 1].clone());
     let t0 = Instant::now();
@@ -23,8 +23,8 @@ fn main() {
         }
         if audio && s.audio_rate_hz.is_some() {
             let mut d = Hydrogen::audio(&rom, &s.id).unwrap();
-            while let Some(b) = d.next_block().unwrap() {
-                samples += b.len() as u64;
+            while d.next_block().unwrap() {
+                samples += d.pcm().len() as u64;
             }
         }
     }

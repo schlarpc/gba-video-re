@@ -1,7 +1,7 @@
 //! `hyCompressionManager::Inflate`, the DEFLATE variant of Majesco's Hydrogen library, including
 //! its behaviour when the output is requested in pieces (one video frame per request).
 //!
-//! Port of `hydrogen/src/hyinflate.c` (spec: `hydrogen/docs/format-hydrogen.md` section 5).
+//! Port of `reference/hydrogen/hyinflate.c` (spec: `docs/hydrogen/format.md` section 5).
 //! Differences from RFC 1951:
 //! - bits are read MSB first from 16-bit little-endian words; every field and every Huffman code
 //!   is read most-significant bit first;

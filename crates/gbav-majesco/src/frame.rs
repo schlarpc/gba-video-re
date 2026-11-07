@@ -40,7 +40,12 @@ impl Frame for VqFrame {
     fn manifest_bytes(&self) -> &[u8] {
         &self.bytes[..self.lines * W * 2]
     }
-    fn bgr555(&self) -> Vec<u16> {
-        self.bytes.as_chunks::<2>().0.iter().map(|b| u16::from_le_bytes([b[0], b[1]])).collect()
+    fn size(&self) -> (u32, u32) {
+        (W as u32, H as u32)
+    }
+    fn bgr555_into(&self, out: &mut [u16]) {
+        for (d, b) in out.iter_mut().zip(self.bytes.as_chunks::<2>().0) {
+            *d = u16::from_le_bytes([b[0], b[1]]);
+        }
     }
 }

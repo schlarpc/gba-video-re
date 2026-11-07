@@ -4,7 +4,7 @@
 use crate::lzma;
 use gbav_common::{Error, Result};
 use gbav_hydrogen::container::{find_containers, VideoStream};
-use gbav_majesco::util::deobfuscate;
+use gbav_majesco::deobfuscate;
 use gbav_majesco::vq::{find_dither, SegmentWord};
 use gbav_majesco::{rd16, rd32};
 

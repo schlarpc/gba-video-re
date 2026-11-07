@@ -9,8 +9,8 @@
 //! ```
 
 use crate::adpcm::{Adpcm, CtabCoding, Output, BLOCK};
-use crate::{rd16, rd32};
-use gbav_common::{AudioDecoder, Error, Result};
+use crate::{rd16, rd32, ArcSlice};
+use gbav_common::{AudioDecoder, BlockKey, Error, Result, Rom};
 
 /// Bytes after the payload handed to the decoder: the cartridge's word reader can run into them.
 pub const TAIL: usize = 64;
@@ -61,29 +61,56 @@ impl AudioTrack {
     pub fn samples(&self) -> usize {
         self.nblocks * BLOCK
     }
-    /// The payload plus up to [`TAIL`] following ROM bytes, as the decoder should see it.
+    /// ROM range of the payload plus up to [`TAIL`] following ROM bytes, as the decoder should
+    /// see it.
+    pub fn payload_range(&self, rom_len: usize) -> std::ops::Range<usize> {
+        self.payload.min(rom_len)..(self.payload + self.payload_len + TAIL).min(rom_len)
+    }
+    /// The payload plus up to [`TAIL`] following ROM bytes.
     pub fn payload_bytes<'r>(&self, rom: &'r [u8]) -> &'r [u8] {
-        let end = (self.payload + self.payload_len + TAIL).min(rom.len());
-        &rom[self.payload..end]
+        &rom[self.payload_range(rom.len())]
     }
 }
 
-/// Owning audio decoder for one track: [`AudioDecoder::next_block`] yields one coded block
-/// (16458 signed 8-bit samples as bytes), the granularity of the ADS and Sonic X proto manifests.
-/// [`TrackDecoder::decode`] takes arbitrary sample counts (the Hydrogen manifests hash each of the
-/// player's calls, 1371/1372 samples split at its ring wrap).
+/// Samples per video frame: 16384 Hz / (2^24 / (5 * 280896)) = 1371.5625 = 21945 / 16; a coded
+/// block (16458 samples) lasts exactly 12 frames.
+pub const FRAME_SAMPLES_X16: u64 = 21945;
+
+/// Audio decoder for one track, reading the shared ROM. [`AudioDecoder::next_block`] yields one
+/// coded block (16458 signed 8-bit samples), the granularity of the ADS and Sonic X proto
+/// manifests; [`AudioDecoder::decode_samples`] / [`TrackDecoder::decode`] take arbitrary sample
+/// counts (the Hydrogen manifests hash each of the player's calls, 1371/1372 samples split at its
+/// ring wrap). [`AudioDecoder::manifest_part`] 0 is the s8 output of the last block or call as
+/// bytes; [`AudioDecoder::pcm`] the same samples as `s8 << 8` (the decoder's native output is
+/// 8-bit).
 pub struct TrackDecoder {
     pub track: AudioTrack,
-    adpcm: Adpcm<Vec<u8>>,
+    adpcm: Adpcm<ArcSlice>,
     block: usize,
     in_block: usize,
-    last: Vec<i16>,
+    key: BlockKey,
+    /// calls (decode_samples) since the start or the last seek
+    calls: u64,
+    scratch: Vec<i8>,
+    bytes: Vec<u8>,
+    pcm: Vec<i32>,
 }
 
 impl TrackDecoder {
-    pub fn new(rom: &[u8], track: AudioTrack, coding: CtabCoding, output: Output) -> TrackDecoder {
-        let data = track.payload_bytes(rom).to_vec();
-        TrackDecoder { track, adpcm: Adpcm::new(data, coding, output), block: 0, in_block: 0, last: Vec::new() }
+    pub fn new(rom: &Rom, track: AudioTrack, coding: CtabCoding, output: Output) -> TrackDecoder {
+        let r = track.payload_range(rom.len());
+        let data = ArcSlice::range(rom.clone(), r.start, r.end);
+        TrackDecoder {
+            track,
+            adpcm: Adpcm::new(data, coding, output),
+            block: 0,
+            in_block: 0,
+            key: BlockKey::default(),
+            calls: 0,
+            scratch: Vec::new(),
+            bytes: Vec::new(),
+            pcm: Vec::new(),
+        }
     }
 
     /// Cold start at block `i` (every block of every stream is a restart block).
@@ -95,6 +122,7 @@ impl TrackDecoder {
         self.adpcm.clear_overrun();
         self.block = i;
         self.in_block = 0;
+        self.calls = 0;
         Ok(())
     }
 
@@ -105,7 +133,6 @@ impl TrackDecoder {
         let t = self.in_block + n;
         self.block += t / BLOCK;
         self.in_block = t % BLOCK;
-        self.last = out[..n].iter().map(|&s| (s as i16) << 8).collect();
         n
     }
 
@@ -118,28 +145,81 @@ impl TrackDecoder {
     pub fn position(&self) -> (usize, usize) {
         (self.block, self.in_block)
     }
+
+    /// The s8 samples of the last block or call.
+    pub fn last_samples(&self) -> &[i8] {
+        &self.scratch
+    }
+
+    /// Decode `n` samples into the part/PCM buffers; the number decoded.
+    fn decode_unit(&mut self, n: usize) -> usize {
+        let mut buf = std::mem::take(&mut self.scratch);
+        buf.resize(n, 0);
+        let got = self.decode(&mut buf);
+        buf.truncate(got);
+        self.bytes.clear();
+        self.bytes.extend(buf.iter().map(|&s| s as u8));
+        self.pcm.clear();
+        self.pcm.extend(buf.iter().map(|&s| (s as i32) << 8));
+        self.scratch = buf;
+        got
+    }
 }
 
 impl AudioDecoder for TrackDecoder {
-    /// The rest of the current block (a whole block after a seek), as signed 8-bit samples.
-    /// `Ok(None)` after the last block. If the bit reader runs past the payload and its ROM tail
-    /// (the last block of a track can end inside the padding; the cartridge never plays that far)
-    /// the block is returned cut short, as the reference decoder does, and the track ends there.
-    fn next_block(&mut self) -> Result<Option<Vec<u8>>> {
+    /// The rest of the current block (a whole block after a seek). `Ok(false)` after the last
+    /// block. If the bit reader runs past the payload and its ROM tail (the last block of a track
+    /// can end inside the padding; the cartridge never plays that far) the block is cut short, as
+    /// the reference decoder does, and the track ends there.
+    fn next_block(&mut self) -> Result<bool> {
         if self.block >= self.track.nblocks || self.adpcm.overrun() {
-            return Ok(None);
+            return Ok(false);
         }
-        let mut buf = vec![0i8; BLOCK - self.in_block];
-        let n = self.decode(&mut buf);
-        if n == 0 {
-            return Ok(None);
+        let b = self.block;
+        if self.decode_unit(BLOCK - self.in_block) == 0 {
+            return Ok(false);
         }
-        buf.truncate(n);
-        Ok(Some(buf.into_iter().map(|s| s as u8).collect()))
+        self.key = BlockKey { frame: None, index: b as u64 };
+        Ok(true)
     }
-    /// The samples of the last call scaled to 16 bits (`s8 << 8`); the decoder's native output is
-    /// 8-bit.
-    fn last_pcm(&self) -> &[i16] {
-        &self.last
+
+    fn key(&self) -> BlockKey {
+        self.key
+    }
+
+    fn manifest_part(&self, _i: usize) -> &[u8] {
+        &self.bytes
+    }
+
+    fn pcm(&self) -> &[i32] {
+        &self.pcm
+    }
+
+    /// One player call of `n` samples (the Hydrogen per-call manifests). `Ok(false)` if not all
+    /// `n` samples can be decoded.
+    fn decode_samples(&mut self, n: usize) -> Result<bool> {
+        if self.adpcm.overrun() {
+            return Ok(false);
+        }
+        let got = self.decode_unit(n);
+        self.key = BlockKey { frame: None, index: self.calls };
+        self.calls += 1;
+        Ok(got == n)
+    }
+
+    /// Cold start at video frame `frame`: the block holding it (12 frames per block; every block
+    /// is a restart block), then decode and discard up to the frame's first sample,
+    /// floor(f * 1371.5625) as the players' sample clock counts.
+    fn seek(&mut self, frame: u32) -> Result<()> {
+        let f = frame as u64;
+        let first = f * FRAME_SAMPLES_X16 / 16;
+        let b = (first / BLOCK as u64) as usize;
+        self.seek_block(b)?;
+        let skip = (first - (b * BLOCK) as u64) as usize;
+        if skip > 0 && self.decode_unit(skip) < skip {
+            return Err(Error::Invalid(format!("frame {frame} past the audio")));
+        }
+        self.calls = 0;
+        Ok(())
     }
 }

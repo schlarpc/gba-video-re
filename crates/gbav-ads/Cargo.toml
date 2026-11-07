@@ -10,3 +10,6 @@ repository.workspace = true
 gbav-common = { path = "../gbav-common" }
 gbav-majesco = { path = "../gbav-majesco" }
 gbav-hydrogen = { path = "../gbav-hydrogen" }
+
+[dev-dependencies]
+gbav-testkit = { path = "../gbav-testkit" }

@@ -7,16 +7,15 @@
 //! - [`audio`]: the type-2 audio resource and an owning [`gbav_common::AudioDecoder`];
 //! - [`frame`]: the decoded frame type both engines return.
 //!
-//! References: `majesco-shared/{vq,adpcm}.md` and `src/{vq,adpcm}.c` of the suite lanes.
+//! Specs: `docs/majesco/{vq,adpcm}.md`; reference C: `reference/majesco/{vq,adpcm}.c`.
 
 pub mod adpcm;
 pub mod audio;
 pub mod frame;
-pub mod util;
 pub mod vq;
 
 pub use frame::VqFrame;
-pub use util::{rd16, rd32, ArcSlice};
+pub use gbav_common::bytes::{deobfuscate, rd16, rd32, ArcSlice};
 
 /// Frame rate of every Majesco player: one frame every 5 VBlanks of 280896 cycles at 2^24 Hz.
 pub const FPS_NUM: u64 = 1 << 24;

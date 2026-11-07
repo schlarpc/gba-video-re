@@ -2,9 +2,7 @@
 //! carts and the Sonic X Vol 2 proto by `Hydrogen`, the 19 ADS carts and the two Hydrogen-packaged
 //! LZMA carts by `Ads`, nothing else by either.
 
-#[path = "../../gbav-majesco/tests/support/mod.rs"]
-#[macro_use]
-mod support;
+use gbav_testkit as support;
 
 use gbav_ads::Ads;
 use gbav_common::Codec;

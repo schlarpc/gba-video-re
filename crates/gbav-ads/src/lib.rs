@@ -4,7 +4,7 @@
 //! after the logo, the Yu-Gi-Oh! Noah's Final Threat proto). The VQ and ADPCM layers are in
 //! `gbav-majesco`.
 //!
-//! Spec: `ads/docs/format-ads.md`; reference C: `ads/src/{ads,lzma_dec}.c`.
+//! Spec: `docs/ads/format.md`; reference C: `reference/ads/{ads,lzma_dec}.c`.
 //!
 //! Known cartridge behaviour this decoder does not reproduce: in the Noah proto's 738-frame
 //! intro (`res3`) the player falls behind on a burst of 1-frame chunks and shows 41 frames with
@@ -17,7 +17,7 @@ pub mod lzma;
 pub mod video;
 
 pub use archive::{AdsCart, Movie, Packaging};
-use gbav_common::{Codec, Error, Result, StreamInfo};
+use gbav_common::{Chapter, Codec, Error, Result, Rom, StreamInfo};
 use gbav_majesco::adpcm::{self, CtabCoding};
 use gbav_majesco::audio::{AudioTrack, TrackDecoder};
 pub use video::AdsVideo;
@@ -34,6 +34,14 @@ impl AdsCart {
             fps_den: gbav_majesco::FPS_DEN,
             frames: m.total_frames(),
             seek_points: m.seek_points(),
+            chapters: m
+                .chapters
+                .iter()
+                .filter_map(|c| {
+                    let k = m.chunks.get(c.chunk as usize)?;
+                    Some(Chapter { frame: k.first_frame, title: Some(c.name.clone()).filter(|t| !t.is_empty()) })
+                })
+                .collect(),
             audio_rate_hz: m.audio.map(|_| adpcm::RATE),
         }
     }
@@ -70,13 +78,13 @@ impl Codec for Ads {
         Ok((0..c.movies.len()).map(|i| c.info(i)).collect())
     }
 
-    fn video(rom: &[u8], stream: &str) -> Result<AdsVideo> {
+    fn video(rom: &Rom, stream: &str) -> Result<AdsVideo> {
         let c = AdsCart::open(rom)?;
         let i = c.index(stream)?;
         AdsVideo::new(rom, &c, i)
     }
 
-    fn audio(rom: &[u8], stream: &str) -> Result<TrackDecoder> {
+    fn audio(rom: &Rom, stream: &str) -> Result<TrackDecoder> {
         let c = AdsCart::open(rom)?;
         let i = c.index(stream)?;
         let out = gbav_hydrogen::engine::adpcm_output_stage(rom);

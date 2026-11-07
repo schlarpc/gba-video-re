@@ -1,2 +1,4 @@
 family,short_id,stream,kind,first,last,reason
 vx,shrek2-rev5,20200,audio,296039,,"the emulated cart loses an audio refill request (docs/vx/perf.md P2.4) and plays misaligned AFrames from this block on; the decoder's blocks are the intended stream"
+ads,noah-proto,res3,video,202,220,"the prototype's player falls behind on a burst of 1-frame chunks and shows these frames with the codebook of the chunk 8 earlier (docs/ads); the decoder's frames are the intended ones and equal the C reference's"
+ads,noah-proto,res3,video,277,298,"as above: stale codebook of the chunk 8 earlier"

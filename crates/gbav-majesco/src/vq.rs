@@ -2,7 +2,7 @@
 //! codebook unprediction, YCbCr -> BGR555 conversion with the 4x4 ordered dither and the
 //! brightness clamp, and the frame blit for all eight modes.
 //!
-//! Port of `majesco-shared/src/vq.c` (spec: `majesco-shared/vq.md`). Bit-exact with it for every
+//! Port of `reference/majesco/vq.c` (spec: `docs/majesco/vq.md`). Bit-exact with it for every
 //! input it defines; inputs it leaves undefined (more than 256 codebook entries, a codebook
 //! shorter than the converter reads) are rejected with [`Error::Undefined`].
 

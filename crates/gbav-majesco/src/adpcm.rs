@@ -1,7 +1,7 @@
 //! Majesco ADPCM audio (ADS and Hydrogen players): adaptive 2-bit ADPCM with a 1/2/3-bit sample
 //! VLC and a 64-entry context table per 16458-sample block.
 //!
-//! Port of `majesco-shared/src/adpcm.c` (spec: `majesco-shared/adpcm.md`), plus the output stage
+//! Port of `reference/majesco/adpcm.c` (spec: `docs/majesco/adpcm.md`), plus the output stage
 //! of the Sonic X Vol 2 prototype, which stores `s/64` without the [-128, 127] clamp.
 
 /// Samples per coded block (0x404A).

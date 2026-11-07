@@ -4,7 +4,7 @@
 //! power-of-two ring (128 KiB for index streams, as on the cartridge).
 //!
 //! Written from Igor Pavlov's LZMA specification (public domain); behaviour on bad input follows
-//! `ads/src/lzma_dec.c`: [`LzmaError::InputOverrun`] when the range coder needs a byte past the
+//! `reference/ads/lzma_dec.c`: [`LzmaError::InputOverrun`] when the range coder needs a byte past the
 //! end of the blob (the symbol in progress is still finished, unnormalised),
 //! [`LzmaError::BadDistance`] for a match before the start of the output or beyond the ring.
 

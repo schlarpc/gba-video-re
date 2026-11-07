@@ -13,7 +13,7 @@
 
 use gbav_common::{Error, Result};
 use gbav_majesco::rd32;
-use gbav_majesco::util::deobfuscate;
+use gbav_majesco::deobfuscate;
 use gbav_majesco::vq::SegmentWord;
 
 /// A movie container found in the ROM.

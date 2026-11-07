@@ -1,12 +1,11 @@
-//! Differential fuzz of the Rust LZMA against `ads/src/lzma_dec.c` (GBAV_CREF), with the
+//! Differential fuzz of the Rust LZMA against `reference/ads/lzma_dec.c` (GBAV_CDIFF=1), with the
 //! cartridge's fixed lc = 0, lp = 0, pb = 2: random streams, real codebook and index blobs from
 //! carts (GBAV_ROMS) and corrupted versions of them, decoded in random slice sizes into the
 //! 128 KiB ring (and the 8 KiB blob ring). Compared after every call: the error class (C
 //! `error` 1/2) and the whole ring.
 
-#[path = "../../gbav-majesco/tests/support/mod.rs"]
-#[macro_use]
-mod support;
+use gbav_testkit as support;
+use gbav_testkit::csym;
 
 use gbav_ads::lzma::{Lzma, BLOB_RING, RING};
 use support::{CLib, Rng};
@@ -23,7 +22,7 @@ struct C {
 }
 
 fn clib() -> Option<C> {
-    let lib = CLib::build("lzmadec", &["ads/src/lzma_dec.c"], &[])?;
+    let lib = CLib::build("lzmadec", &["ads/lzma_dec.c"], &[], std::path::Path::new(env!("CARGO_TARGET_TMPDIR")))?;
     Some(C { probs_size: csym!(lib, "lzma_probs_size"), init: csym!(lib, "lzma_init"), decode: csym!(lib, "lzma_decode"), _lib: lib })
 }
 
@@ -65,7 +64,7 @@ fn slices(r: &mut Rng, total: u32) -> Vec<u32> {
 
 #[test]
 fn lzma_matches_c_on_random_streams() {
-    let Some(c) = clib() else { return eprintln!("skip: GBAV_CREF not set") };
+    let Some(c) = clib() else { return eprintln!("skip: C differential tests off (set GBAV_CDIFF=1)") };
     let mut r = Rng::new(21);
     let iters = support::fuzz_iters() * 2;
     let mut errs = [0usize; 3];
@@ -88,7 +87,7 @@ fn lzma_matches_c_on_random_streams() {
 
 #[test]
 fn lzma_matches_c_on_cart_blobs() {
-    let Some(c) = clib() else { return eprintln!("skip: GBAV_CREF not set") };
+    let Some(c) = clib() else { return eprintln!("skip: C differential tests off (set GBAV_CDIFF=1)") };
     let mut blobs: Vec<(Vec<u8>, u32, u32)> = Vec::new();
     for name in ["Super Robot Monkey Team - Hyper Force Go! - Volume 1 (USA)", "Nicktoons Collection - Volume 2 (USA)", "The Adventures of Jimmy Neutron Boy Genius - Volume 1 (USA)"] {
         let Some(rom) = support::load_rom(name) else { return eprintln!("skip: GBAV_ROMS not set") };

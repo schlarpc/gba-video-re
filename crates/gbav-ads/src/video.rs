@@ -3,15 +3,14 @@
 
 use crate::archive::{AdsCart, Movie};
 use crate::lzma::{self, Lzma, RING};
-use gbav_common::{Error, Result, VideoDecoder};
+use gbav_common::{Error, Result, Rom, VideoDecoder};
 use gbav_majesco::vq::{self, Row159, Tables, Vcb, H, W};
 use gbav_majesco::{ArcSlice, VqFrame};
-use std::sync::Arc;
 
 /// The codebook slot the players decompress into.
 pub const CB_SLOT: usize = 0x1800;
 
-/// Decoder for one ADS movie. Owns a copy of the movie's video bytes.
+/// Decoder for one ADS movie. Reads the movie from the shared ROM.
 pub struct AdsVideo {
     pub movie: Movie,
     data: ArcSlice,
@@ -30,11 +29,11 @@ pub struct AdsVideo {
 }
 
 impl AdsVideo {
-    pub fn new(rom: &[u8], cart: &AdsCart, i: usize) -> Result<AdsVideo> {
+    pub fn new(rom: &Rom, cart: &AdsCart, i: usize) -> Result<AdsVideo> {
         let movie = cart.movies.get(i).ok_or_else(|| Error::Invalid(format!("no movie {i}")))?.clone();
         let base = movie.v_off;
         let end = (movie.v_off + movie.v_len).max(movie.chunks.last().map_or(0, |c| c.b_off + c.b_len)).min(rom.len());
-        let data = ArcSlice::new(Arc::from(&rom[base..end]));
+        let data = ArcSlice::range(rom.clone(), base, end);
         let mut v = AdsVideo {
             movie,
             data,

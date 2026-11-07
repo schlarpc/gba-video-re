@@ -4,10 +4,9 @@
 use crate::container::VideoStream;
 use crate::engine::Player;
 use crate::inflate::{decode_blob_counted, Inflate, InflateError};
-use gbav_common::{Error, Result, VideoDecoder};
+use gbav_common::{Error, Result, Rom, VideoDecoder};
 use gbav_majesco::vq::{self, Row159, Tables, Vcb, H, W};
 use gbav_majesco::{ArcSlice, VqFrame};
-use std::sync::Arc;
 
 /// Per-segment numbers for statistics.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -16,7 +15,7 @@ pub struct SegmentStats {
     pub idx_blocks: [u32; 4],
 }
 
-/// Decoder for one Hydrogen video stream. Owns a copy of the stream's bytes.
+/// Decoder for one Hydrogen video stream. Reads the stream from the shared ROM.
 pub struct HyVideo {
     pub stream: VideoStream,
     data: ArcSlice,
@@ -33,14 +32,14 @@ pub struct HyVideo {
 }
 
 impl HyVideo {
-    /// `rom` is only read here; the decoder copies the stream.
-    pub fn new(rom: &[u8], stream: VideoStream, player: &Player, gain_bias: i32) -> Result<HyVideo> {
+    /// The decoder keeps a reference to `rom`; nothing is copied.
+    pub fn new(rom: &Rom, stream: VideoStream, player: &Player, gain_bias: i32) -> Result<HyVideo> {
         if stream.codec != 5 {
             return Err(Error::Format(format!("video codec {} is not Hydrogen Inflate (5)", stream.codec)));
         }
         let base = stream.offset;
         let end = stream.end().max(base + stream.len).min(rom.len());
-        let data = ArcSlice::new(Arc::from(&rom[base..end]));
+        let data = ArcSlice::range(rom.clone(), base, end);
         Ok(HyVideo {
             stream,
             data,
