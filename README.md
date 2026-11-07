@@ -55,9 +55,9 @@ none of them is a decoder error.
 |---|---|
 | [docs/](docs/) | Per family (`vx`, `fvmv`, `hydrogen`, `sonicx2-proto`, `ads`, `majesco`, `am3`): `README.md` (overview, results, open issues), `player.md`, `format.md` (reimplementation grade), `perf.md`, `prior-art.md`, `features.md`, `stats.json`. [docs/carts.md](docs/carts.md) is the generated cart table |
 | `reference/<family>/` | The C99 reference decoders: `vx/decoder` (vxdec), `fvmv` (fvmvdec), `hydrogen` (hydec, hystat), `sonicx2-proto` (sx2dec), `ads` (adsdec), and `majesco` (VQ + ADPCM shared by Hydrogen and ADS). Tables that are not standard are generated from your ROM at build time |
-| `crates/` | The Rust workspace: `gbav-common` (decoder traits, md5, shared output stages), `gbav-rom` (cart identification, family classifier, player build id, embedded No-Intro table), one crate per codec (`gbav-vx`, `gbav-fvmv`, `gbav-majesco`, `gbav-hydrogen`, `gbav-ads`) and the `gbav` command line (`gbav-cli`) |
+| `crates/` | The Rust workspace: `gbav-common` (decoder traits, md5, shared output stages), `gbav-rom` (cart identification, family classifier, player build id, embedded No-Intro table), one crate per codec (`gbav-vx`, `gbav-fvmv`, `gbav-majesco`, `gbav-hydrogen`, `gbav-ads`) the `gbav` command line (`gbav-cli`), and `gbav-testkit` (test support: ROM lookup, env gates, the C reference decoders loaded for differential tests) |
 | `tools/<family>/` | Python and emulator tooling: mGBA capture harnesses, unicorn oracles, fuzzers, profilers, verify and stats scripts. `tools/common/roms.py` finds your ROMs; `tools/gen_tables.py` regenerates the tables; `tools/mgba/` and the family `patch` files are mGBA patches |
-| `verify/<family>/` | Hash manifests `<cart>_<stream>.{frame,audio}_md5.csv.gz` (hashes only), and [verify/carts.csv](verify/carts.csv), which maps each cart's short id to its sha1 and No-Intro name |
+| `verify/<family>/` | Hash manifests, hashes only: `<cart>_<stream>.frame_md5.csv.gz` (every frame), `.audio_seg_md5.csv.gz` (the audio in about 30-second segments) and, where present, `.audio_md5.csv.gz` (every audio block; large, see [Manifests](#manifests)). [verify/carts.csv](verify/carts.csv) maps each cart's short id to its sha1 and No-Intro name; [verify/known.csv](verify/known.csv) lists the frames and blocks where the cart itself shows something else than the stream (an emulated audio failure, a stale codebook) |
 
 ## Build and verify
 
@@ -78,6 +78,18 @@ Without `GBAV_ROMS` the ROM-based tests skip themselves. The C reference decoder
 `python3 tools/fvmv/verify.py`. The unicorn oracles and fuzzers need the `unicorn` and
 `capstone` Python packages; the capture tools need the mGBA libretro core
 (`nix build nixpkgs#libretro.mgba`), and the profilers a core built with one of the patches.
+
+### Manifests
+
+Every frame manifest has one md5 per frame. Audio comes in two forms. The per-block manifests
+(`*.audio_md5.csv.gz`) hash every audio block (VX: every 512-byte AFrame output) or every
+player call (Hydrogen); for the VX movies alone they are 120 MB of incompressible hashes, so
+they may be left out of a published copy. The segment manifests (`*.audio_seg_md5.csv.gz`) are
+always present: each row hashes about 30 seconds of the same output and names the blocks it
+covers. They were made with `gbav make-segments` from the per-block manifests and contain only
+blocks that matched them. Verification (`cargo test`, `gbav verify`) uses the per-block manifests
+when they are there and the segments otherwise; a mismatch is then located to a 30-second
+segment instead of a block.
 
 To regenerate [docs/carts.md](docs/carts.md) and the summary above after changing a
 `stats.json` or the No-Intro table: `python3 tools/gen_tables.py` (`--check` in CI).
