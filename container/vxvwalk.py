@@ -182,3 +182,188 @@ def walk_segment(video_swapped, lut_blob, start_bit, nframes, width, height):
         qps.append(w.frame(width, height))
         starts.append(w.p)
     return starts, qps
+
+
+# ---------------------------------------------------------------------------------------------
+# VXGB (GBA Video Rev 5 player: Shark Tale, Shrek 2). Same macroblock grammar; no frame header;
+# residuals are CAVLC-coded with an nC context kept in two persistent byte grids (docs/vxgb.md).
+# The code tables are read from the cart's player IWRAM image (ROM 0xb548).
+VXGB_IW_ROM = 0xB548
+NZ_SY, NZ_SC = 0x41, 0x21
+NZY0, NZC0 = 0x42, 0xA69 + 0x22      # MB (0,0) entries in one buffer: luma grid then chroma grid
+
+
+class GBTables:
+    def __init__(self, rom):
+        iw = rom[VXGB_IW_ROM:VXGB_IW_ROM + 0x7CD0]
+        b = lambda a: iw[a - 0x03000000]
+        w32 = lambda a: struct.unpack_from('<I', iw, a - 0x03000000)[0]
+        self.cbp = [b(0x03005E90 + i) for i in range(32)]
+        self.node = [b(0x03006120 + i) for i in range(8)]
+        self.lens = [0x03006120 - 0x03000000 + b(0x03006128 + i) for i in range(8)]
+        t = w32(0x03006910) - 0x03000000
+        self.tree = [x - 256 if x > 127 else x for x in iw[t:t + 49 * 16]]
+        self.tz = [(b(0x03006200 + k), w32(0x03006210 + 4 * k) - 0x03000000) for k in range(15)]
+        self.rb = [(b(0x03006250 + k), w32(0x03006258 + 4 * k) - 0x03000000) for k in range(6)]
+        self.thr = struct.unpack_from('<6I', iw, 0x6080)
+        self.iw = iw
+
+
+class PyWalkerGB(PyWalker):
+    """Parse-only VXGB walker. self.nz is the pair of nC grids; keep the same walker across
+    frames (the player never resets the grids, except at power-on)."""
+
+    def __init__(self, video, tabs):
+        self.d = swap16(video)
+        self.t = tabs
+        self.p = 0
+        self.nz = bytearray(0xA69 + 0x2B5)
+
+    def tab(self, width, base):
+        v = self.t.iw[base + 16 + (self.peek32() >> (32 - width))]
+        self.p += self.t.iw[base + v]
+        return v
+
+    def coef4x4(self, nC):
+        t = self.t
+        if nC >= 8:
+            v = self.bits(6)
+            t1, tc = v & 3, (v >> 2) + 1
+            if t1 > tc:
+                tc = 0
+        else:
+            a = self.peek32()
+            node = t.node[nC]
+            for lvl in range(4):
+                sym = t.tree[node * 16 + ((a >> (28 - 4 * lvl)) & 15)]
+                if sym >= 0:
+                    break
+                node = -sym
+                if node >= 49:
+                    break
+            if sym < 0:
+                raise ValueError('bad coeff_token at %d' % self.p)
+            self.p += t.iw[t.lens[nC] + sym]
+            t1, tc = sym & 3, sym >> 2
+        if tc == 0:
+            return 0
+        n = tc
+        zl = self.tab(*t.tz[tc - 1]) if tc < 16 else 0
+        if tc + zl > 16:
+            raise ValueError('total_zeros overflow at %d' % self.p)
+        sl = 0
+        while True:
+            if t1 > 0:
+                t1 -= 1
+                self.p += 1
+            else:
+                a = self.peek32()
+                if a == 0:
+                    raise ValueError('level prefix overflow at %d' % self.p)
+                z = 32 - a.bit_length()
+                self.p += z + 1
+                if z == 15:
+                    lc = self.bits(11) + (15 << sl)
+                elif z > 15:
+                    raise ValueError('level prefix %d at %d' % (z, self.p))
+                else:
+                    lc = (self.bits(sl) if sl else 0) + (z << sl)
+                self.p += 1                       # sign
+                if lc > t.thr[sl]:
+                    sl += 1
+            n -= 1
+            if n == 0:
+                return tc
+            if zl == 0:
+                continue
+            if zl > 6:
+                a = self.peek32()
+                z = 32 - a.bit_length()
+                run = z + 4 if z >= 3 else 7 - (a >> 29)
+                self.p += z + 1 if z >= 3 else 3
+            else:
+                run = self.tab(*t.rb[zl - 1])
+            if run > zl:
+                raise ValueError('run_before overflow at %d' % self.p)
+            zl -= run
+
+    def residual(self, w, h, ny, nc):
+        nz = self.nz
+        for by in range(0, h, 8):
+            for bx in range(0, w, 8):
+                idx = self.ue()
+                if idx >= 32:
+                    raise ValueError('cbp idx %d at %d' % (idx, self.p))
+                cbp = self.t.cbp[idx]
+                y0 = ny + (by >> 2) * NZ_SY + (bx >> 2)
+                c0 = nc + (by >> 3) * NZ_SC + (bx >> 3)
+                for k in range(4):
+                    q = y0 + (k >> 1) * NZ_SY + (k & 1)
+                    nz[q] = self.coef4x4((nz[q - 1] + nz[q - NZ_SY] + 1) >> 1) if cbp & (1 << k) else 0
+                if cbp & 0x10:
+                    nC = (nz[c0 - 1] + nz[c0 - NZ_SC] + 1) >> 1
+                    tu = self.coef4x4(nC)
+                    nz[c0] = (tu + self.coef4x4(nC) + 1) >> 1
+                else:
+                    nz[c0] = 0
+
+    def mb(self, w, h, ny=0, nc=0):
+        m = self.ue()
+        if m >= (24 if w >= 8 and h >= 8 else 12):
+            raise ValueError('mode %d at %d (%dx%d)' % (m, self.p, w, h))
+        a, res = ACTION[GBA_MODE_MAP[m]]
+        if a == 'V':
+            if w == 2:
+                raise ValueError('vsplit 2 at %d' % self.p)
+            self.mb(w // 2, h, ny, nc)
+            self.mb(w // 2, h, ny + 2, nc + 1)
+        elif a == 'H':
+            if h == 2:
+                raise ValueError('hsplit 2 at %d' % self.p)
+            self.mb(w, h // 2, ny, nc)
+            self.mb(w, h // 2, ny + 2 * NZ_SY, nc + NZ_SC)
+        elif a == 'D':
+            self.se(); self.se()
+        elif a == 'C':
+            for _ in range(5):
+                self.se()
+        elif a == 'P':
+            for _ in range(3):
+                self.se()
+        elif a == 'N' and w >= 4 and h >= 4:
+            if self.ue() > 3 or self.ue() > 3:
+                raise ValueError('intra mode at %d' % self.p)
+        elif a == '4' and w >= 4 and h >= 4:
+            for _ in range((w // 4) * (h // 4)):
+                if not self.bits(1):
+                    self.bits(3)
+            if self.ue() > 3:
+                raise ValueError('chroma mode at %d' % self.p)
+        if w >= 8 and h >= 8:
+            if res:
+                self.residual(w, h, ny, nc)
+            elif not (a == 'H' and h == 16) and not (a == 'V' and w == 16):
+                for y in range(h // 4):
+                    self.nz[ny + y * NZ_SY:ny + y * NZ_SY + w // 4] = bytes(w // 4)
+                for y in range(h // 8):
+                    self.nz[nc + y * NZ_SC:nc + y * NZ_SC + w // 8] = bytes(w // 8)
+
+    def frame(self, width, height):
+        """No frame header in VXGB; returns 0 (the QP is the VX header's +0x14)."""
+        for my in range(height // 16):
+            for mx in range(width // 16):
+                self.mb(16, 16, NZY0 + my * 4 * NZ_SY + mx * 4, NZC0 + my * 2 * NZ_SC + mx * 2)
+        return 0
+
+
+def walk_segment_gb(video_swapped, tabs, start_bit, nframes, width, height, walker=None):
+    """VXGB version of walk_segment. Pass walker to carry the nC grids over (continuous play);
+    by default a fresh walker = zeroed grids, which is what the player has after power-on."""
+    w = walker or PyWalkerGB(b'', tabs)
+    w.d = video_swapped
+    w.p = start_bit
+    starts = [start_bit]
+    for _ in range(nframes):
+        w.frame(width, height)
+        starts.append(w.p)
+    return starts, [0] * nframes
