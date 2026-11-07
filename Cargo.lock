@@ -5,6 +5,11 @@ version = 4
 [[package]]
 name = "gbav-ads"
 version = "0.1.0"
+dependencies = [
+ "gbav-common",
+ "gbav-hydrogen",
+ "gbav-majesco",
+]
 
 [[package]]
 name = "gbav-cli"
@@ -28,10 +33,17 @@ dependencies = [
 [[package]]
 name = "gbav-hydrogen"
 version = "0.1.0"
+dependencies = [
+ "gbav-common",
+ "gbav-majesco",
+]
 
 [[package]]
 name = "gbav-majesco"
 version = "0.1.0"
+dependencies = [
+ "gbav-common",
+]
 
 [[package]]
 name = "gbav-rom"

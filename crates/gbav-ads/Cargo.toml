@@ -7,3 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+gbav-common = { path = "../gbav-common" }
+gbav-majesco = { path = "../gbav-majesco" }
+gbav-hydrogen = { path = "../gbav-hydrogen" }
