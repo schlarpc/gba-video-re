@@ -58,9 +58,10 @@ static int coef4x4(vx_bits *bs, const int32_t s[8], uint8_t *dst, int step, unsi
         int node = vxgb_ct_node[nC], sym = 0;
         for (int lvl = 0; lvl < 4; lvl++) {
             sym = vxgb_ct_tree[node * 16 + (peek >> 28)];
-            if (sym >= 0) break;
+            if (sym >= 0 || lvl == 3) break;
             peek <<= 4;
             node = -sym;
+            if (node >= 49) return -3;   /* the tree has no such node (never in valid codes) */
         }
         if (sym < 0) return -3;     /* no codeword: ARM reads lengths before the table */
         skip(bs, vxgb_ct_len[vxgb_ct_lenoff[nC] + sym]);
