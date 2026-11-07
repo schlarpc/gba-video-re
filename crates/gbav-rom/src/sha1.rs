@@ -42,11 +42,10 @@ impl Sha1 {
             compress(&mut self.h, &block);
             self.buf_len = 0;
         }
-        let mut chunks = data.chunks_exact(64);
-        for block in &mut chunks {
-            compress(&mut self.h, block.try_into().expect("64-byte chunk"));
+        let (blocks, rest) = data.as_chunks::<64>();
+        for block in blocks {
+            compress(&mut self.h, block);
         }
-        let rest = chunks.remainder();
         self.buf[..rest.len()].copy_from_slice(rest);
         self.buf_len = rest.len();
     }
@@ -56,12 +55,16 @@ impl Sha1 {
         let bits = self.total.wrapping_mul(8);
         let mut pad = [0u8; 72];
         pad[0] = 0x80;
-        let pad_len = if self.buf_len < 56 { 56 - self.buf_len } else { 120 - self.buf_len };
+        let pad_len = if self.buf_len < 56 {
+            56 - self.buf_len
+        } else {
+            120 - self.buf_len
+        };
         self.update(&pad[..pad_len]);
         self.update(&bits.to_be_bytes());
         debug_assert_eq!(self.buf_len, 0);
         let mut out = [0u8; 20];
-        for (o, w) in out.chunks_exact_mut(4).zip(self.h) {
+        for (o, w) in out.as_chunks_mut::<4>().0.iter_mut().zip(self.h) {
             o.copy_from_slice(&w.to_be_bytes());
         }
         out
@@ -70,8 +73,8 @@ impl Sha1 {
 
 fn compress(h: &mut [u32; 5], block: &[u8; 64]) {
     let mut w = [0u32; 80];
-    for (i, c) in block.chunks_exact(4).enumerate() {
-        w[i] = u32::from_be_bytes([c[0], c[1], c[2], c[3]]);
+    for (i, c) in block.as_chunks::<4>().0.iter().enumerate() {
+        w[i] = u32::from_be_bytes(*c);
     }
     for i in 16..80 {
         w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
@@ -132,7 +135,10 @@ mod tests {
     #[test]
     fn vectors() {
         assert_eq!(hex_digest(b""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-        assert_eq!(hex_digest(b"abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
+        assert_eq!(
+            hex_digest(b"abc"),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        );
         assert_eq!(
             hex_digest(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
             "84983e441c3bd26ebaae4aa1f95129e5e54670f1"
@@ -142,7 +148,10 @@ mod tests {
             "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12"
         );
         // 1,000,000 x 'a'
-        assert_eq!(hex_digest(&vec![b'a'; 1_000_000]), "34aa973cd4c4daa4f61eeb2bdbad27316534016f");
+        assert_eq!(
+            hex_digest(&vec![b'a'; 1_000_000]),
+            "34aa973cd4c4daa4f61eeb2bdbad27316534016f"
+        );
     }
 
     #[test]

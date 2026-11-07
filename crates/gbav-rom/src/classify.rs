@@ -119,9 +119,14 @@ impl Engine {
 
     /// Inverse of [`Engine::as_str`].
     pub fn parse(s: &str) -> Option<Engine> {
-        [Engine::ActimagineLoader, Engine::ArmSdtRegions, Engine::HydrogenCrtTable, Engine::SfcdArchive]
-            .into_iter()
-            .find(|e| e.as_str() == s)
+        [
+            Engine::ActimagineLoader,
+            Engine::ArmSdtRegions,
+            Engine::HydrogenCrtTable,
+            Engine::SfcdArchive,
+        ]
+        .into_iter()
+        .find(|e| e.as_str() == s)
     }
 }
 
@@ -194,11 +199,13 @@ impl Classification {
 // ---------------------------------------------------------------- byte helpers
 
 fn u16_at(d: &[u8], o: usize) -> Option<u16> {
-    d.get(o..o.checked_add(2)?).map(|b| u16::from_le_bytes([b[0], b[1]]))
+    d.get(o..o.checked_add(2)?)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
 }
 
 fn u32_at(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o.checked_add(4)?).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    d.get(o..o.checked_add(4)?)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 
 fn clamp(len: usize, start: usize, size: usize) -> Range<usize> {
@@ -238,12 +245,23 @@ pub fn sfcd_members(rom: &[u8]) -> Option<Vec<SfcdMember>> {
     let data = p + 8 + hdr;
     let mut o = p + 12;
     for _ in 0..cnt {
-        let (Some(size), Some(off)) = (u32_at(rom, o), u32_at(rom, o + 4)) else { break };
-        let Some(nl) = rom.get(o + 8..).and_then(|r| r.iter().position(|&b| b == 0)) else { break };
+        let (Some(size), Some(off)) = (u32_at(rom, o), u32_at(rom, o + 4)) else {
+            break;
+        };
+        let Some(nl) = rom
+            .get(o + 8..)
+            .and_then(|r| r.iter().position(|&b| b == 0))
+        else {
+            break;
+        };
         let e = o + 8 + nl;
         let name: String = rom[o + 8..e].iter().map(|&b| b as char).collect();
         o = (e + 4) & !3;
-        out.push(SfcdMember { name, offset: data + off as usize, size: size as usize });
+        out.push(SfcdMember {
+            name,
+            offset: data + off as usize,
+            size: size as usize,
+        });
     }
     Some(out)
 }
@@ -259,19 +277,31 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 pub fn locate_player_image(rom: &[u8]) -> Option<PlayerImage> {
     let len = rom.len();
     if let Some(members) = sfcd_members(rom) {
-        if let Some(m) = members.iter().find(|m| m.name.eq_ignore_ascii_case("main.bin")) {
-            return Some(PlayerImage { engine: Engine::SfcdArchive, range: clamp(len, m.offset, m.size) });
+        if let Some(m) = members
+            .iter()
+            .find(|m| m.name.eq_ignore_ascii_case("main.bin"))
+        {
+            return Some(PlayerImage {
+                engine: Engine::SfcdArchive,
+                range: clamp(len, m.offset, m.size),
+            });
         }
     }
-    if let (Some(a), Some(b), Some(c)) = (u32_at(rom, 0x8e4), u32_at(rom, 0x8e8), u32_at(rom, 0x8ec)) {
-        let ok = |s: u32| s > 0 && s <= 0x40000 && s % 0x1000 == 0;
+    if let (Some(a), Some(b), Some(c)) =
+        (u32_at(rom, 0x8e4), u32_at(rom, 0x8e8), u32_at(rom, 0x8ec))
+    {
+        let ok = |s: u32| s > 0 && s <= 0x40000 && s & 0xfff == 0;
         if rom.get(0x20200..0x20202) == Some(b"VX") && ok(a) && ok(b) && ok(c) {
             let end = 0xa00 + (a + b + c) as usize;
-            return Some(PlayerImage { engine: Engine::ActimagineLoader, range: clamp(len, 0x200, end - 0x200) });
+            return Some(PlayerImage {
+                engine: Engine::ActimagineLoader,
+                range: clamp(len, 0x200, end - 0x200),
+            });
         }
     }
     let nw = len / 4;
-    let word = |i: usize| u32::from_le_bytes([rom[4 * i], rom[4 * i + 1], rom[4 * i + 2], rom[4 * i + 3]]);
+    let word =
+        |i: usize| u32::from_le_bytes([rom[4 * i], rom[4 * i + 1], rom[4 * i + 2], rom[4 * i + 3]]);
     for i in (1..nw.saturating_sub(1)).rev() {
         if word(i) != IWRAM {
             continue;
@@ -281,7 +311,10 @@ pub fn locate_player_image(rom: &[u8]) -> Option<PlayerImage> {
             let o = (lma - 0x0800_0000) as usize;
             let gap = o as i64 - 4 * i as i64;
             if gap > 0 && gap <= 0x40 {
-                return Some(PlayerImage { engine: Engine::HydrogenCrtTable, range: clamp(len, o, size as usize) });
+                return Some(PlayerImage {
+                    engine: Engine::HydrogenCrtTable,
+                    range: clamp(len, o, size as usize),
+                });
             }
         }
     }
@@ -290,9 +323,17 @@ pub fn locate_player_image(rom: &[u8]) -> Option<PlayerImage> {
         for i in 0..pool.len() - 1 {
             let lma = pool[i + 1];
             if pool[i] == IWRAM && is_rom_ptr(lma) {
-                if let Some(end) = pool.iter().copied().filter(|&x| lma < x && x <= lma + 0x8000).max() {
+                if let Some(end) = pool
+                    .iter()
+                    .copied()
+                    .filter(|&x| lma < x && x <= lma + 0x8000)
+                    .max()
+                {
                     let (o, e) = ((lma - 0x0800_0000) as usize, (end - 0x0800_0000) as usize);
-                    return Some(PlayerImage { engine: Engine::ArmSdtRegions, range: clamp(len, o, e - o) });
+                    return Some(PlayerImage {
+                        engine: Engine::ArmSdtRegions,
+                        range: clamp(len, o, e - o),
+                    });
                 }
             }
         }
@@ -316,14 +357,20 @@ pub fn build_id(image: &[u8]) -> Option<String> {
             s += 1;
             continue;
         }
-        let e = s + img[s..].iter().position(|&b| !printable(b)).unwrap_or(img.len() - s);
-        if img[s..e].windows(3).any(|w| w[0].is_ascii_alphabetic() && w[1] == b':' && w[2] == b'\\') {
+        let e = s + img[s..]
+            .iter()
+            .position(|&b| !printable(b))
+            .unwrap_or(img.len() - s);
+        if img[s..e]
+            .windows(3)
+            .any(|w| w[0].is_ascii_alphabetic() && w[1] == b':' && w[2] == b'\\')
+        {
             img[s..e].fill(0);
         }
         s = e;
     }
-    for w in img.chunks_exact_mut(4) {
-        if is_rom_ptr(u32::from_le_bytes([w[0], w[1], w[2], w[3]])) {
+    for w in img.as_chunks_mut::<4>().0 {
+        if is_rom_ptr(u32::from_le_bytes(*w)) {
             w.fill(0);
         }
     }
@@ -337,7 +384,9 @@ pub fn build_id(image: &[u8]) -> Option<String> {
 pub fn vx_streams(rom: &[u8]) -> Vec<StreamLocator> {
     let mut out = Vec::new();
     for h in (0..rom.len() / 0x200 * 0x200).step_by(0x200) {
-        let Some(var) = u32_at(rom, h).and_then(VxVariant::from_magic) else { continue };
+        let Some(var) = u32_at(rom, h).and_then(VxVariant::from_magic) else {
+            continue;
+        };
         let f = |k| u32_at(rom, h + k).unwrap_or(0);
         let (n, w, ht, tm3) = (f(4), f(8), f(12), f(16));
         if (1..=240).contains(&w) && (1..=160).contains(&ht) && tm3 != 0 {
@@ -395,7 +444,8 @@ pub struct HydrogenContainer {
 /// exactly at `o + size`.
 pub fn hydrogen_containers(rom: &[u8]) -> Vec<HydrogenContainer> {
     let nw = rom.len() / 4;
-    let word = |i: usize| u32::from_le_bytes([rom[4 * i], rom[4 * i + 1], rom[4 * i + 2], rom[4 * i + 3]]);
+    let word =
+        |i: usize| u32::from_le_bytes([rom[4 * i], rom[4 * i + 1], rom[4 * i + 2], rom[4 * i + 3]]);
     let mut out = Vec::new();
     for i in 0..nw.saturating_sub(3) {
         if word(i + 1) >> 28 != 1 || word(i + 2) >> 28 != 2 || (word(i + 3) >> 10) & 0x3ff != 240 {
@@ -428,7 +478,9 @@ pub fn hydrogen_containers(rom: &[u8]) -> Vec<HydrogenContainer> {
         if !ok || p - o + 4 != size {
             continue;
         }
-        let (Some(v0), Some(v1)) = (u32_at(rom, v), u32_at(rom, v + 4)) else { continue };
+        let (Some(v0), Some(v1)) = (u32_at(rom, v), u32_at(rom, v + 4)) else {
+            continue;
+        };
         out.push(HydrogenContainer {
             stream: StreamLocator {
                 id: format!("{o:x}"),
@@ -452,15 +504,21 @@ pub fn hydrogen_containers(rom: &[u8]) -> Vec<HydrogenContainer> {
 pub fn mmstr_streams(rom: &[u8], members: &[SfcdMember]) -> Vec<(StreamLocator, u32)> {
     let mut out = Vec::new();
     for m in members {
-        let Some(id) = m.name.strip_suffix(".mmstr") else { continue };
+        let Some(id) = m.name.strip_suffix(".mmstr") else {
+            continue;
+        };
         let end = m.offset.saturating_add(m.size).min(rom.len());
-        let Some(total) = u32_at(rom, m.offset) else { continue };
+        let Some(total) = u32_at(rom, m.offset) else {
+            continue;
+        };
         let stop = m.offset.saturating_add(total as usize).min(end);
         let mut o = m.offset + 8;
         while o < stop {
             let Some(w) = u32_at(rom, o) else { break };
             if w >> 28 == 1 {
-                let (Some(v0), Some(v1)) = (u32_at(rom, o + 4), u32_at(rom, o + 8)) else { break };
+                let (Some(v0), Some(v1)) = (u32_at(rom, o + 4), u32_at(rom, o + 8)) else {
+                    break;
+                };
                 let (width, height) = if (v1 >> 10) & 0x3ff == 240 {
                     ((v1 >> 10) & 0x3ff, (v1 >> 20) & 0x3ff)
                 } else {
@@ -490,7 +548,13 @@ pub fn mmstr_streams(rom: &[u8], members: &[SfcdMember]) -> Vec<(StreamLocator, 
 pub fn classify(rom: &[u8]) -> Classification {
     let image = locate_player_image(rom);
     let build_id = image.as_ref().and_then(|i| build_id(&rom[i.range.clone()]));
-    let mut c = Classification { family: None, vx_variant: None, image, build_id, streams: Vec::new() };
+    let mut c = Classification {
+        family: None,
+        vx_variant: None,
+        image,
+        build_id,
+        streams: Vec::new(),
+    };
     let Some(engine) = c.engine() else { return c };
     match engine {
         Engine::SfcdArchive => {
@@ -601,11 +665,21 @@ mod tests {
         assert_eq!(c.image.unwrap().range, 0x3010..0x3110);
         assert_eq!(c.family, Some(Family::Hydrogen));
         assert_eq!(c.streams.len(), 2);
-        assert_eq!((c.streams[0].id.as_str(), c.streams[0].frames, c.streams[0].width), ("100", 100, 240));
+        assert_eq!(
+            (
+                c.streams[0].id.as_str(),
+                c.streams[0].frames,
+                c.streams[0].width
+            ),
+            ("100", 100, 240)
+        );
         assert_eq!(classify(&hydrogen_rom(&[7, 7])).family, Some(Family::Ads));
         // Mixed or unknown codecs: engine known, family unknown, no streams.
         let m = classify(&hydrogen_rom(&[5, 7]));
-        assert_eq!((m.engine(), m.family, m.streams.len()), (Some(Engine::HydrogenCrtTable), None, 0));
+        assert_eq!(
+            (m.engine(), m.family, m.streams.len()),
+            (Some(Engine::HydrogenCrtTable), None, 0)
+        );
         assert_eq!(classify(&hydrogen_rom(&[3])).family, None);
         assert_eq!(classify(&hydrogen_rom(&[])).family, None);
     }
@@ -622,7 +696,10 @@ mod tests {
         let p = 0x200;
         r[p..p + 4].copy_from_slice(b"SFCD");
         let mut names = Vec::new();
-        for (name, off, size) in [("main.bin", 0x0u32, 0x100u32), ("movie_1.mmstr", 0x100, 0x40)] {
+        for (name, off, size) in [
+            ("main.bin", 0x0u32, 0x100u32),
+            ("movie_1.mmstr", 0x100, 0x40),
+        ] {
             let mut e = Vec::new();
             e.extend_from_slice(&size.to_le_bytes());
             e.extend_from_slice(&off.to_le_bytes());
@@ -653,14 +730,20 @@ mod tests {
     fn sfcd_archive() {
         let r = sfcd_rom(7);
         let ms = sfcd_members(&r).unwrap();
-        assert_eq!(ms.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), ["main.bin", "movie_1.mmstr"]);
+        assert_eq!(
+            ms.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+            ["main.bin", "movie_1.mmstr"]
+        );
         let c = classify(&r);
         assert_eq!(c.engine(), Some(Engine::SfcdArchive));
         assert_eq!(c.image.as_ref().unwrap().range.len(), 0x100);
         assert_eq!(c.family, Some(Family::Ads));
         assert_eq!(c.streams.len(), 1);
         let s = &c.streams[0];
-        assert_eq!((s.id.as_str(), s.width, s.height, s.frames), ("movie_1", 240, 160, 50));
+        assert_eq!(
+            (s.id.as_str(), s.width, s.height, s.frames),
+            ("movie_1", 240, 160, 50)
+        );
         assert_eq!(classify(&sfcd_rom(5)).family, None);
     }
 
@@ -678,7 +761,10 @@ mod tests {
         let c = classify(&r);
         assert_eq!(c.engine(), Some(Engine::ActimagineLoader));
         assert_eq!(c.image.as_ref().unwrap().range, 0x200..0x6a00);
-        assert_eq!((c.family, c.vx_variant), (Some(Family::Vx), Some(VxVariant::Vxgb)));
+        assert_eq!(
+            (c.family, c.vx_variant),
+            (Some(Family::Vx), Some(VxVariant::Vxgb))
+        );
         assert_eq!(c.streams[0].id, "20200");
         r[0x20200..0x20204].copy_from_slice(b"VXZZ");
         assert_eq!(classify(&r).family, None);
