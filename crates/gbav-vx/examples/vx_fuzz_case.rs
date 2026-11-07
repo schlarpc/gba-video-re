@@ -43,7 +43,7 @@ fn main() {
                 println!("  blk {}x{} @{:05x} mode {} bit {}", t[0], t[1], t[2], t[3], t[4]);
             }
         }
-        std::fs::write("/tmp/claude-1000/case.rust.ewram", &core.ew[..]).ok();
+        std::fs::write(std::env::temp_dir().join("case.rust.ewram"), &core.ew[..]).ok();
         break;
     }
 }
