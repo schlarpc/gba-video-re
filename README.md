@@ -2,7 +2,9 @@
 
 This repository documents the video player on the Game Boy Advance Video cartridge
 *Shrek* (USA, Rev 6). The cartridge plays its movie with Actimagine's "VX++" codec, the
-predecessor of Mobiclip. The repository has:
+predecessor of Mobiclip. The codec itself was first reverse engineered by quatric (see
+[Prior art and credits](#prior-art-and-credits)); this repository re-derives it from the
+cartridge code and adds the rest of the player. The repository has:
 
 - documentation of the player program;
 - a specification of the container, video and audio bitstreams, detailed enough to
@@ -28,6 +30,7 @@ Their player program is byte-identical to Shrek's; see [Other cartridges](#other
 | [emu.md](docs/emu.md) | How the ground truth was made. Headless mGBA (libretro core driven through ctypes) captures decoded frames. A unicorn harness runs the cartridge's own decoder code one frame at a time. |
 | [vxgb.md](docs/vxgb.md) | VXGB, the older codec revision on the *Shark Tale* and *Shrek 2* Rev 5 cartridges: every difference from VX++ (no frame header, header QP, H.264 CAVLC residual tables behind a different syntax, persistent nC grids, player memory map). |
 | [perf.md](docs/perf.md) | CPU, memory, cartridge bus, DMA, display and audio use over the whole movie, measured with an instrumented mGBA. |
+| [prior-art.md](docs/prior-art.md) | The earlier public work on these formats, compared element by element with this repository, and a test of quatric's mobipeg decoder against our verified output. |
 
 ## Code
 
@@ -92,7 +95,8 @@ Full sha1s are in `verify/streams.json`. "All match" means all of these checks p
 - Every audio block the cartridge plays matches the emulator.
 
 The Rev 5 *Shark Tale* and *Shrek 2* cartridges use the older "VXGB" format; see below and
-[docs/vxgb.md](docs/vxgb.md).
+[docs/vxgb.md](docs/vxgb.md). quatric reports that *Shrek* (USA) (Rev 5) is VXGB too; we had no
+dump of it to check.
 
 The loader, all three programs and the player's EWRAM and IWRAM images are byte-identical on
 all four cartridges. Only the cartridge header and the menu data at ROM 0x20000 differ.
@@ -132,6 +136,50 @@ Without a VXGB ROM the build still works and decodes VX++ only.
 |---|---|---|
 | Shark Tale (USA) (Rev 5) | `6128a476edb10e6839ac5bd2697e83b9b7a9b234` | video: all 37,697 frames match the emulator, all 191 seek points; audio: all 689,317 AFrames match the ARM routine |
 | Shrek 2 (USA) (Rev 5) | `5cd627e205020297b25d707131883be5850515fe` | video: all 38,816 frames match the emulator, all 197 seek points; audio: all 709,779 AFrames match the ARM routine (the emulated cart underruns its audio window late in the movie, see vxgb.md 9) |
+
+## Prior art and credits
+
+The VX++ and VXGB codecs were reverse engineered before this repository, by **quatric**:
+
+- [quatric/mobipeg](https://github.com/quatric/mobipeg) (August 2026): detailed notes
+  (`doc/gba_video_vxpp.md`, `doc/gba_video_vxgb.md`), Python tools, and a native FFmpeg
+  demuxer and decoder (`libavformat/gbavx.c`, `libavcodec/gbavxdec.c`, `libavcodec/vx.c`)
+  for both revisions;
+- ["The Mobiclip Formats"](https://gist.github.com/quatric/3e2f0caa5c22a9a8b24d9cf1ffdfe860),
+  section 8.3, a summary of that work.
+
+Their work already covered the container, the bitstream grammar, all prediction modes, MV
+prediction, the residual coding of both revisions, the transform and the audio codec. This
+repository's first grammar walker took its mode semantics from mobipeg. We built mobipeg and
+compared it with our verified output: its decoded pictures are identical on every frame of
+Shrek (Rev 6), Shrek 2 (Rev 6) and both VXGB movies. Two bugs in its frame wrapper break the other
+five streams (QPs above 31, and a QP change inside a segment); see
+[docs/prior-art.md](docs/prior-art.md).
+
+The audio codec is the DS VX codec, implemented earlier by
+[CharlesVanEeckhout/actimagine](https://github.com/CharlesVanEeckhout/actimagine) and
+mobipeg's `vx_audio.c`. The DS VX video codec, which VXGB's residual coding shares, goes back to
+Gericom's FFmpeg decoder patch (2021) and the actimagine decoder. The VX++ coefficient code
+is the table in FFmpeg's `mobiclip.c` (Florian Nouwt, Adib Surani, Paul B Mahol). Earlier
+public notes: the [MultimediaWiki page](https://wiki.multimedia.cx/index.php/Actimagine_Video_Codec)
+on the DS codec, and Kostya Shishkov's
+[2025 note](https://codecs.multimedia.cx/2025/08/a-quick-glance-at-another-bunch-of-codecs/)
+on the `VXGB` magic. The emulator ground truth relies on mGBA's Matrix mapper emulation.
+
+What this repository adds:
+
+- the player program: boot loader, mapper use, memory map, timers and IRQs, A/V pacing,
+  input, on-screen display, and the self-modifying YUV->RGB blitter;
+- the display stage exactly: dither, 5-bit clamp table, and the carries when the table runs
+  into code bytes;
+- the GBA audio output stage, and the player's reset of the audio state at intra AFrames;
+- a frame header model that also handles QP changes inside a segment, the container
+  fields the earlier work left unexplained, and the exact per-frame A/V mapping;
+- smaller codec findings: the VX++ coefficient code is the MPEG-4 intra TCOEF table, the
+  exact bilinear fill on corner overflow, and the bit reader on over-long codes;
+- whole-movie verification of nine streams against an emulator and the cartridge's own ARM
+  code, and differential fuzzing against that code;
+- a cycle-level profile of the player.
 
 ## Licence
 
