@@ -38,7 +38,7 @@ VX = 0x20200
 # concatenated hex md5s of those 512-byte blocks, as emu/mkmanifest.py computes it)
 MOVIES = {
     "6128a476edb10e6839ac5bd2697e83b9b7a9b234": ("sharktale-rev5_20200", 689240, "f6fa7b811f49a3a32412ee39bd55ebb3"),
-    "5cd627e205020297b25d707131883be5850515fe": ("shrek2-rev5_20200", None, None),
+    "5cd627e205020297b25d707131883be5850515fe": ("shrek2-rev5_20200", 709698, "2e831e52abb536df79fd9ca58bf1fc4a"),
 }
 
 
