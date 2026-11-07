@@ -9,6 +9,10 @@ version = "0.1.0"
 [[package]]
 name = "gbav-cli"
 version = "0.1.0"
+dependencies = [
+ "gbav-common",
+ "gbav-rom",
+]
 
 [[package]]
 name = "gbav-common"

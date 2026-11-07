@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+gbav-common = { path = "../gbav-common" }
+gbav-rom = { path = "../gbav-rom" }
 [[bin]]
 name = "gbav"
 path = "src/main.rs"
