@@ -338,3 +338,46 @@ pub fn gains_before(data: &[u8], dither_off: usize) -> Option<(Vec<i32>, usize)>
     let d = v.iter().position(|&g| g == 256)?;
     Some((v, d))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn geometry() {
+        let b: Vec<usize> = (0..8).map(|m| Mode::new(m).blocks()).collect();
+        assert_eq!(b, [2400, 2400, 3180, 3180, 4240, 4240, 4800, 4800]);
+        let l: Vec<usize> = (0..8).map(|m| Mode::new(m).grid_lines()).collect();
+        assert_eq!(l, [160, 160, 159, 159, 159, 159, 160, 160]);
+        assert_eq!(Mode::new(5).codebook_bytes(256), 3328);
+        assert_eq!(Mode::new(1).codebook_bytes(256), 6144);
+        assert_eq!(Mode::new(3).codebook_bytes(256), 4608);
+        assert_eq!(Mode::new(7).codebook_bytes(256), 3072);
+        let w = SegmentWord::parse(0x0020_4035);
+        assert_eq!((w.mode.id(), w.mbits, w.ncb, w.frames), (5, 6, 256, 32));
+    }
+
+    #[test]
+    fn identity_gain_and_dither() {
+        let t = Tables::new([0, 4, 1, 5, 6, 2, 7, 3, 1, 5, 0, 4, 7, 3, 6, 2], 256, 0);
+        assert!((0..256).all(|v| t.lut[v] as usize == v));
+        // grey stays grey; 8-bit 255 -> 31
+        assert_eq!(t.pix(0, 255, 0, 0), 0x7fff);
+        assert_eq!(t.pix(0, 0, 0, 0), 0);
+        let b = Tables::new([0; 16], 307, 0);
+        assert_eq!(b.lut[255], 255);
+        assert_eq!(b.lut[100], 119);
+    }
+
+    #[test]
+    fn row159() {
+        let cb: Box<Vcb> = Box::new([[0x1234; 16]; 256]);
+        let idx = vec![0u8; 4240];
+        let mut fb = vec![0xffffu16; W * H];
+        assert_eq!(blit(&idx, Mode::new(5), &cb, Row159::Untouched, &mut fb).unwrap(), 159);
+        assert!(fb[159 * W..].iter().all(|&p| p == 0xffff));
+        assert_eq!(blit(&idx, Mode::new(5), &cb, Row159::BLACK, &mut fb).unwrap(), 160);
+        assert!(fb[159 * W..].iter().all(|&p| p == 0));
+        assert!(convert(&[0; 10], Mode::new(5), 257, &Tables::new([0; 16], 256, 0), &mut [[0; 16]; 256]).is_err());
+    }
+}

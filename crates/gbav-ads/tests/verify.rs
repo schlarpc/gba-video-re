@@ -123,7 +123,7 @@ fn verify_cart(cid: &str, name: &str, suite: &Path) -> Tally {
             });
             if let Some(k) = hit {
                 t.stale_explained += 1;
-                if t.stale_explained <= 3 || f % 100 == 0 {
+                if t.stale_explained <= 3 || f.is_multiple_of(100) {
                     eprintln!("{sname}: frame {f} (chunk {ci}) is shown by the cartridge with the codebook of chunk {}", ci - k);
                 }
             } else {

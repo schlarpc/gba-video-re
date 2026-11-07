@@ -111,7 +111,7 @@ fn huff_lengths(freq: &[u32], limit: u32) -> Vec<u32> {
         }
         for x in &mut f {
             if *x > 0 {
-                *x = (*x + 1) / 2 + 1;
+                *x = (*x).div_ceil(2) + 1;
             }
         }
     }
@@ -455,6 +455,31 @@ fn chunks_for(r: &mut Rng, size: usize) -> Vec<i64> {
         }
     }
     v
+}
+
+/// No C needed: streams without stored blocks decode to the encoder's input in any request
+/// pattern, and the end marker (block type 3) is where the player expects it.
+#[test]
+fn inflate_round_trips_encoded_streams() {
+    let mut r = Rng::new(10);
+    for it in 0..200 {
+        let size = r.range(1, 30000) as usize;
+        let types: &[u32] = if it % 2 == 0 { &[1, 2] } else { &[2] };
+        let (blob, expect) = encode(&mut r, size, types);
+        let mut s = Inflate::new(&blob[..], expect.len());
+        let mut got = Vec::new();
+        let g = r.pick(&[2400u64, 3180, 4240, 4800]) as usize;
+        let mut done = 0;
+        while done < expect.len() {
+            let n = g.min(expect.len() - done);
+            let off = s.request(n as i64).unwrap() as usize;
+            got.extend_from_slice(&s.output()[off..off + n]);
+            done += n;
+        }
+        assert_eq!(got, expect, "iter {it}");
+        assert!(s.check_end(), "iter {it}: end marker");
+        assert_eq!(gbav_hydrogen::inflate::decode_blob(&blob).unwrap(), expect);
+    }
 }
 
 #[test]

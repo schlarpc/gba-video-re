@@ -386,3 +386,51 @@ pub fn decode_blob(blob: &[u8], cap: usize) -> Result<Vec<u8>, Error> {
     d.read(0, h.usize as usize, &mut out);
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `xz --format=raw --lzma1=lc=0,lp=0,pb=2` of TEXT (with an end marker).
+    const TEXT: &[u8] = b"abracadabra abracadabra abracadabra, the Majesco ring!";
+    const RAW: [u8; 41] = [
+        0x00, 0x30, 0x98, 0xe6, 0x3c, 0x0a, 0xd9, 0x9f, 0xae, 0x69, 0xe4, 0x44, 0xbd, 0x24, 0xb5, 0xc9, 0xe0, 0xa0,
+        0x63, 0x43, 0x76, 0x10, 0xc6, 0x78, 0x1b, 0x13, 0x1f, 0xaa, 0xf3, 0x5f, 0x4c, 0x20, 0xbf, 0x80, 0xf8, 0xc3,
+        0xff, 0xec, 0xe3, 0x80, 0x00,
+    ];
+
+    #[test]
+    fn decodes_in_slices_and_flags_the_end_marker() {
+        for step in [1u32, 3, 7, 54] {
+            let mut d = Lzma::new(&RAW[..], RING);
+            let mut done = 0;
+            while done < TEXT.len() as u32 {
+                let n = step.min(TEXT.len() as u32 - done);
+                d.decode(n).unwrap();
+                done += n;
+            }
+            let mut out = Vec::new();
+            d.read(0, TEXT.len(), &mut out);
+            assert_eq!(out, TEXT);
+            // the cartridge streams have no end marker; an encoder's marker is a distance error
+            assert_eq!(d.decode(1), Err(LzmaError::BadDistance));
+        }
+    }
+
+    #[test]
+    fn truncated_input_is_an_overrun() {
+        let mut d = Lzma::new(&RAW[..20], RING);
+        assert_eq!(d.decode(TEXT.len() as u32), Err(LzmaError::InputOverrun));
+        assert_eq!(Lzma::new(&RAW[..3], RING).error(), Some(LzmaError::InputOverrun));
+    }
+
+    #[test]
+    fn blob_prefix() {
+        let mut blob = (TEXT.len() as u32).to_le_bytes().to_vec();
+        blob.extend_from_slice(&0x0001_0002u32.to_le_bytes());
+        blob.extend_from_slice(&RAW);
+        assert_eq!(decode_blob(&blob, 0x1800).unwrap(), TEXT);
+        assert!(decode_blob(&blob, 10).is_err());
+        assert_eq!(BlobHeader::parse(&blob).unwrap().named_params(), (0, 0, 2));
+    }
+}

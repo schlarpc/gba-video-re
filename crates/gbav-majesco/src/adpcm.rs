@@ -213,7 +213,7 @@ impl<B: AsRef<[u8]>> Adpcm<B> {
         let st = self.step;
         let r = (st >> 8).wrapping_add(0x74).wrapping_add(if sym & 1 != 0 { 0xf9 } else { 0 });
         let sh = 14 - ((r >> 7) & 15);
-        let base = (((r & 0x7f) | 0x80) << 7) as i32;
+        let base = ((r & 0x7f) | 0x80) << 7;
         // the shift amount is -1 for (r>>7)&15 == 15: ARM ASR by register 255 (and x86 SAR by 31)
         // gives 0 for this positive value
         let mut mag = if sh < 0 { 0 } else { base >> sh };

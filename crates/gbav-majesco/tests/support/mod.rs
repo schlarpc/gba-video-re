@@ -179,10 +179,15 @@ impl CLib {
 }
 
 /// `let f: extern "C" fn(..) -> .. = csym!(lib, "name");`
+#[allow(unused_macros)]
 macro_rules! csym {
     ($lib:expr, $name:expr) => {
         // SAFETY: the declared type matches the C prototype in the reference headers.
-        unsafe { std::mem::transmute($lib.sym($name)) }
+        {
+            #[allow(clippy::missing_transmute_annotations)]
+            let f = unsafe { std::mem::transmute($lib.sym($name)) };
+            f
+        }
     };
 }
 
@@ -237,7 +242,7 @@ pub fn md5(data: &[u8]) -> [u8; 16] {
         h[3] = h[3].wrapping_add(d);
     };
     let full = data.len() / 64 * 64;
-    for c in data[..full].chunks_exact(64) {
+    for c in data[..full].as_chunks::<64>().0 {
         block(c);
     }
     let mut tail = data[full..].to_vec();
@@ -246,7 +251,7 @@ pub fn md5(data: &[u8]) -> [u8; 16] {
         tail.push(0);
     }
     tail.extend_from_slice(&((data.len() as u64).wrapping_mul(8)).to_le_bytes());
-    for c in tail.chunks_exact(64) {
+    for c in tail.as_chunks::<64>().0 {
         block(c);
     }
     let mut out = [0u8; 16];
