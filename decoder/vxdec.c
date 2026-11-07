@@ -695,6 +695,13 @@ void vxgb_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int heigh
     blit(vxgb_iwram_lo, slot, out, width, height);
 }
 
+/* ------------------------------------------------------------------ test API (fuzz.py, ctypes) */
+vx_dec *vx_new(void) { return calloc(1, sizeof(vx_dec)); }
+void vx_free(vx_dec *d) { free(d); }
+uint8_t *vx_ewram(vx_dec *d) { return d->ew; }
+unsigned long vx_errors(vx_dec *d) { return d->err; }
+uint32_t vx_bitpos(vx_dec *d) { return vx_bits_pos(&d->bs); }
+void vx_set_mbbits(vx_dec *d, uint32_t *p) { d->mb_bits = p; }
 void vx_yuv_to_bgr555_any(vx_dec *d, const uint8_t *slot, uint16_t *out)
 {
     (d->vxgb ? vxgb_yuv_to_bgr555 : vx_yuv_to_bgr555)(slot, out, d->width, d->height);
