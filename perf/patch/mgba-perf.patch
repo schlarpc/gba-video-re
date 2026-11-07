@@ -1,0 +1,420 @@
+diff -ruN -x '*.o' -x '*.so' -x '*.d' /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/include/mgba/internal/gba/perf.h mgba-src/include/mgba/internal/gba/perf.h
+--- /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/include/mgba/internal/gba/perf.h	1969-12-31 16:00:00.000000000 -0800
++++ mgba-src/include/mgba/internal/gba/perf.h	2026-11-06 13:04:22.478498111 -0800
+@@ -0,0 +1,59 @@
++/* Shrek perf instrumentation (tmp/shrek/perf). Exported as retro_perf_* through link.T. */
++#ifndef GBA_PERF_H
++#define GBA_PERF_H
++#include <stdint.h>
++#include <string.h>
++
++#define PERF_NB 64          /* function buckets (from the PC LUT) */
++#define PERF_NCTX 4         /* execution context: 0 main, 1 irq dispatch, 2/3 handler ids */
++#define PERF_NK (PERF_NB * PERF_NCTX)
++#define PERF_NSNAP 1024
++
++/* LUT entry: bits 0-5 bucket, bits 8-10 ctx-set (value+1, 0 = none), bit 11 pop ctx, bit 12 snapshot event */
++#define PERF_F_POP 0x0800
++#define PERF_F_EVENT 0x1000
++
++struct PerfCounters {
++	uint64_t now;                /* global cycle time at snapshot */
++	uint64_t elapsed;            /* sum of timing ticks */
++	uint64_t cyc[PERF_NK];       /* cycles charged to instructions */
++	uint64_t ins[PERF_NK];
++	uint64_t memcyc[PERF_NK];    /* cycles charged by data accesses (incl. base) */
++	uint64_t memwait[PERF_NK];   /* waitstate part of data accesses */
++	uint64_t fetchwait[PERF_NK]; /* seq-fetch waitstates (approx: activeSeqCycles per insn) */
++	uint64_t halted, blocked, irq_entry_cyc, irqs;
++	uint64_t dma_units[4], dma_bytes[4], dma_cyc[4];
++	uint64_t matrix_cmds, matrix_bytes;
++	/* CPU data traffic per region (addr>>24 & 15) */
++	uint64_t rd_n[PERF_NCTX][16], wr_n[PERF_NCTX][16], rd_b[PERF_NCTX][16], wr_b[PERF_NCTX][16], rd_w[PERF_NCTX][16], wr_w[PERF_NCTX][16];
++	uint64_t fetch_b[16];
++	uint64_t matrix_cmds_ctx[PERF_NCTX];
++	uint64_t dma_rd_b[16], dma_wr_b[16];
++	/* CPU VRAM writes by raster state: 0 active (not hblank), 1 hblank (visible line), 2 vblank */
++	uint64_t vram_wr_b[3];
++};
++
++struct PerfSnap {
++	uint32_t pc, ctx, vcount, pad;
++	struct PerfCounters c;
++};
++
++extern struct PerfCounters perfC;
++extern uint16_t perf_lut_bios[0x2000], perf_lut_ewram[0x20000], perf_lut_iwram[0x4000];
++extern uint32_t perf_key;         /* current ctx*NB + bucket */
++extern uint32_t perf_ctx;
++extern int perf_enabled;
++
++void perf_event(void* cpu, uint32_t pc, uint16_t e);
++void perf_irq_raise(void* cpu, int32_t cycles);
++
++static inline uint16_t perf_lut(uint32_t pc) {
++	switch (pc >> 24) {
++	case 0: return pc < 0x4000 ? perf_lut_bios[pc >> 1] : 62;
++	case 2: return perf_lut_ewram[(pc & 0x3FFFF) >> 1];
++	case 3: return perf_lut_iwram[(pc & 0x7FFF) >> 1];
++	case 8: case 9: return 61;
++	default: return 63;
++	}
++}
++#endif
+diff -ruN -x '*.o' -x '*.so' -x '*.d' /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/libretro-build/Makefile.common mgba-src/libretro-build/Makefile.common
+--- /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/libretro-build/Makefile.common	1969-12-31 16:00:01.000000000 -0800
++++ mgba-src/libretro-build/Makefile.common	2026-11-06 13:00:05.384150069 -0800
+@@ -89,6 +89,7 @@
+ 					$(CORE_DIR)/src/gba/core.c \
+ 					$(CORE_DIR)/src/gba/dma.c \
+ 					$(CORE_DIR)/src/gba/gba.c \
++					$(CORE_DIR)/src/gba/perf.c \
+ 					$(CORE_DIR)/src/gba/cart/gpio.c \
+ 					$(CORE_DIR)/src/gba/cart/ereader.c \
+ 					$(CORE_DIR)/src/gba/cart/unlicensed.c \
+diff -ruN -x '*.o' -x '*.so' -x '*.d' /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/arm/arm.c mgba-src/src/arm/arm.c
+--- /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/arm/arm.c	1969-12-31 16:00:01.000000000 -0800
++++ mgba-src/src/arm/arm.c	2026-11-06 13:00:05.383150051 -0800
+@@ -4,6 +4,8 @@
+  * License, v. 2.0. If a copy of the MPL was not distributed with this
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ #include <mgba/internal/arm/arm.h>
++#include <mgba/internal/gba/perf.h>
++void perf_pop(void);
+ 
+ #include <mgba/internal/arm/isa-arm.h>
+ #include <mgba/internal/arm/isa-inlines.h>
+@@ -137,7 +139,9 @@
+ 	cpu->gprs[ARM_LR] = cpu->gprs[ARM_PC] - instructionWidth + WORD_SIZE_ARM;
+ 	cpu->gprs[ARM_PC] = BASE_IRQ;
+ 	_ARMSetMode(cpu, MODE_ARM);
+-	cpu->cycles += ARMWritePC(cpu);
++	int32_t pcyc = ARMWritePC(cpu);
++	cpu->cycles += pcyc;
++	perf_irq_raise(cpu, pcyc);
+ 	cpu->spsr = cpsr;
+ 	cpu->cpsr.i = 1;
+ 	cpu->halted = 0;
+@@ -198,7 +202,22 @@
+ 	0x0000 // NV
+ };
+ 
++static inline void perf_post(struct ARMCore* cpu, uint32_t pc, uint16_t e, int32_t c0, uint32_t seqw) {
++	uint32_t k = perf_key;
++	perfC.cyc[k] += cpu->cycles - c0;
++	perfC.ins[k]++;
++	perfC.fetchwait[k] += seqw;
++	if (UNLIKELY(e & PERF_F_POP)) perf_pop();
++}
++
+ static inline void ARMStep(struct ARMCore* cpu) {
++	uint32_t ppc = cpu->gprs[ARM_PC] - WORD_SIZE_ARM;
++	uint16_t pe = perf_lut(ppc);
++	if (UNLIKELY(pe & 0x1F00)) perf_event(cpu, ppc, pe);
++	perf_key = perf_ctx * PERF_NB + (pe & 63);
++	int32_t pc0 = cpu->cycles;
++	uint32_t pseq = cpu->memory.activeSeqCycles32;
++	perfC.fetch_b[(ppc >> 24) & 15] += 4;
+ 	uint32_t opcode = cpu->prefetch[0];
+ 	cpu->prefetch[0] = cpu->prefetch[1];
+ 	cpu->gprs[ARM_PC] += WORD_SIZE_ARM;
+@@ -210,20 +229,30 @@
+ 		bool conditionMet = conditionLut[condition] & (1 << flags);
+ 		if (!conditionMet) {
+ 			cpu->cycles += ARM_PREFETCH_CYCLES;
++			perf_post(cpu, ppc, pe, pc0, pseq);
+ 			return;
+ 		}
+ 	}
+ 	ARMInstruction instruction = _armTable[((opcode >> 16) & 0xFF0) | ((opcode >> 4) & 0x00F)];
+ 	instruction(cpu, opcode);
++	perf_post(cpu, ppc, pe, pc0, pseq);
+ }
+ 
+ static inline void ThumbStep(struct ARMCore* cpu) {
++	uint32_t ppc = cpu->gprs[ARM_PC] - WORD_SIZE_THUMB;
++	uint16_t pe = perf_lut(ppc);
++	if (UNLIKELY(pe & 0x1F00)) perf_event(cpu, ppc, pe);
++	perf_key = perf_ctx * PERF_NB + (pe & 63);
++	int32_t pc0 = cpu->cycles;
++	uint32_t pseq = cpu->memory.activeSeqCycles16;
++	perfC.fetch_b[(ppc >> 24) & 15] += 2;
+ 	uint32_t opcode = cpu->prefetch[0];
+ 	cpu->prefetch[0] = cpu->prefetch[1];
+ 	cpu->gprs[ARM_PC] += WORD_SIZE_THUMB;
+ 	LOAD_16(cpu->prefetch[1], cpu->gprs[ARM_PC] & cpu->memory.activeMask, cpu->memory.activeRegion);
+ 	ThumbInstruction instruction = _thumbTable[opcode >> 6];
+ 	instruction(cpu, opcode);
++	perf_post(cpu, ppc, pe, pc0, pseq);
+ }
+ 
+ void ARMRun(struct ARMCore* cpu) {
+diff -ruN -x '*.o' -x '*.so' -x '*.d' /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/cart/matrix.c mgba-src/src/gba/cart/matrix.c
+--- /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/cart/matrix.c	1969-12-31 16:00:01.000000000 -0800
++++ mgba-src/src/gba/cart/matrix.c	2026-11-06 13:04:22.478498111 -0800
+@@ -7,6 +7,7 @@
+ 
+ #include <mgba/internal/arm/macros.h>
+ #include <mgba/internal/gba/gba.h>
++#include <mgba/internal/gba/perf.h>
+ #include <mgba/internal/gba/memory.h>
+ #include <mgba/internal/gba/serialize.h>
+ #include <mgba-util/vfs.h>
+@@ -56,6 +57,7 @@
+ 		switch (value) {
+ 		case 0x01:
+ 		case 0x11:
++			perfC.matrix_cmds++; perfC.matrix_cmds_ctx[perf_ctx & 3]++; perfC.matrix_bytes += gba->memory.matrix.size;
+ 			_remapMatrix(gba);
+ 			break;
+ 		default:
+diff -ruN -x '*.o' -x '*.so' -x '*.d' /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/dma.c mgba-src/src/gba/dma.c
+--- /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/dma.c	1969-12-31 16:00:01.000000000 -0800
++++ mgba-src/src/gba/dma.c	2026-11-06 13:00:05.383150051 -0800
+@@ -6,6 +6,7 @@
+ #include <mgba/internal/gba/dma.h>
+ 
+ #include <mgba/internal/gba/gba.h>
++#include <mgba/internal/gba/perf.h>
+ #include <mgba/internal/gba/io.h>
+ 
+ mLOG_DEFINE_CATEGORY(GBA_DMA, "GBA DMA", "gba.dma");
+@@ -279,6 +280,7 @@
+ 		cycles += info->cycles;
+ 	}
+ 	info->when += cycles;
++	perfC.dma_units[number]++; perfC.dma_bytes[number] += width; perfC.dma_cyc[number] += cycles;
+ 
+ 	if (width == 4) {
+ 		if (source) {
+@@ -338,6 +340,7 @@
+ 		info->nextCount |= 0x80000000;
+ 		if (sourceRegion < GBA_REGION_ROM0 || destRegion < GBA_REGION_ROM0) {
+ 			info->when += 2;
++			perfC.dma_cyc[number] += 2;
+ 		}
+ 	}
+ 	GBADMAUpdate(gba);
+diff -ruN -x '*.o' -x '*.so' -x '*.d' /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/gba.c mgba-src/src/gba/gba.c
+--- /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/gba.c	1969-12-31 16:00:01.000000000 -0800
++++ mgba-src/src/gba/gba.c	2026-11-06 13:00:05.383150051 -0800
+@@ -12,6 +12,7 @@
+ #include <mgba/internal/gba/bios.h>
+ #include <mgba/internal/gba/cheats.h>
+ #include <mgba/internal/gba/io.h>
++#include <mgba/internal/gba/perf.h>
+ #include <mgba/internal/gba/overrides.h>
+ 
+ #include <mgba-util/patch.h>
+@@ -337,9 +338,15 @@
+ 	while (cpu->cycles >= nextEvent) {
+ 		cpu->nextEvent = INT_MAX;
+ 		nextEvent = 0;
++		int perfIter = 0;
+ 		do {
+ 			int32_t cycles = cpu->cycles;
+ 			cpu->cycles = 0;
++			{
++				int32_t adv = cycles < nextEvent ? nextEvent : cycles;
++				perfC.elapsed += adv;
++				if (perfIter++) perfC.blocked += adv;
++			}
+ #ifdef ENABLE_DEBUGGERS
+ 			gba->timing.globalCycles += cycles < nextEvent ? nextEvent : cycles;
+ #endif
+@@ -349,6 +356,7 @@
+ 
+ 		cpu->nextEvent = nextEvent;
+ 		if (cpu->halted) {
++			perfC.halted += nextEvent - cpu->cycles;
+ 			cpu->cycles = nextEvent;
+ 			if (!gba->memory.io[GBA_REG(IME)] || !gba->memory.io[GBA_REG(IE)]) {
+ 				break;
+@@ -362,6 +370,7 @@
+ 	}
+ 	gba->earlyExit = false;
+ 	if (gba->cpuBlocked) {
++		perfC.blocked += cpu->nextEvent - cpu->cycles;
+ 		cpu->cycles = cpu->nextEvent;
+ 	}
+ }
+diff -ruN -x '*.o' -x '*.so' -x '*.d' /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/memory.c mgba-src/src/gba/memory.c
+--- /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/memory.c	1969-12-31 16:00:01.000000000 -0800
++++ mgba-src/src/gba/memory.c	2026-11-06 13:00:05.384150069 -0800
+@@ -29,6 +29,9 @@
+ static const uint32_t _agbPrintFunc = 0x4770DFFA; // swi 0xFA; bx lr
+ 
+ static void GBASetActiveRegion(struct ARMCore* cpu, uint32_t region);
++uint32_t perfLoad32(struct ARMCore*, uint32_t, int*); uint32_t perfLoad16(struct ARMCore*, uint32_t, int*); uint32_t perfLoad8(struct ARMCore*, uint32_t, int*);
++void perfStore32(struct ARMCore*, uint32_t, int32_t, int*); void perfStore16(struct ARMCore*, uint32_t, int16_t, int*); void perfStore8(struct ARMCore*, uint32_t, int8_t, int*);
++uint32_t perfLoadMultiple(struct ARMCore*, uint32_t, int, enum LSMDirection, int*); uint32_t perfStoreMultiple(struct ARMCore*, uint32_t, int, enum LSMDirection, int*);
+ static int32_t GBAMemoryStall(struct ARMCore* cpu, int32_t wait);
+ static int32_t GBAMemoryStallVRAM(struct GBA* gba, int32_t wait, int extra);
+ 
+@@ -41,14 +44,14 @@
+ 
+ void GBAMemoryInit(struct GBA* gba) {
+ 	struct ARMCore* cpu = gba->cpu;
+-	cpu->memory.load32 = GBALoad32;
+-	cpu->memory.load16 = GBALoad16;
+-	cpu->memory.load8 = GBALoad8;
+-	cpu->memory.loadMultiple = GBALoadMultiple;
+-	cpu->memory.store32 = GBAStore32;
+-	cpu->memory.store16 = GBAStore16;
+-	cpu->memory.store8 = GBAStore8;
+-	cpu->memory.storeMultiple = GBAStoreMultiple;
++	cpu->memory.load32 = perfLoad32;
++	cpu->memory.load16 = perfLoad16;
++	cpu->memory.load8 = perfLoad8;
++	cpu->memory.loadMultiple = perfLoadMultiple;
++	cpu->memory.store32 = perfStore32;
++	cpu->memory.store16 = perfStore16;
++	cpu->memory.store8 = perfStore8;
++	cpu->memory.storeMultiple = perfStoreMultiple;
+ 	cpu->memory.stall = GBAMemoryStall;
+ 
+ 	gba->memory.bios = (uint32_t*) hleBios;
+diff -ruN -x '*.o' -x '*.so' -x '*.d' /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/perf.c mgba-src/src/gba/perf.c
+--- /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source/src/gba/perf.c	1969-12-31 16:00:00.000000000 -0800
++++ mgba-src/src/gba/perf.c	2026-11-06 13:15:55.593163498 -0800
+@@ -0,0 +1,140 @@
++#include <mgba/internal/gba/perf.h>
++#include <mgba/internal/arm/arm.h>
++#include <mgba/internal/gba/gba.h>
++#include <mgba/internal/gba/io.h>
++
++struct PerfCounters perfC;
++uint16_t perf_lut_bios[0x2000], perf_lut_ewram[0x20000], perf_lut_iwram[0x4000];
++uint32_t perf_key, perf_ctx;
++int perf_enabled = 1;
++static uint32_t ctx_stack[64];
++static int ctx_sp;
++static struct PerfSnap snaps[PERF_NSNAP];
++static uint32_t snap_w, snap_r;
++static uint32_t snap_lost;
++
++void perf_event(void* vcpu, uint32_t pc, uint16_t e) {
++	struct ARMCore* cpu = vcpu;
++	if (e & PERF_F_EVENT) {
++		struct GBA* gba = (struct GBA*) cpu->master;
++		if (snap_w - snap_r >= PERF_NSNAP) { ++snap_lost; }
++		else {
++			struct PerfSnap* s = &snaps[snap_w % PERF_NSNAP];
++			perfC.now = perfC.elapsed + (int64_t) cpu->cycles;
++			s->pc = pc; s->ctx = perf_ctx; s->vcount = gba->video.vcount;
++			s->c = perfC;
++			++snap_w;
++		}
++	}
++	if (e & 0x700) {
++		perf_ctx = ((e >> 8) & 7) - 1;
++		if (perf_ctx == 0) ctx_sp = 0; /* main-loop code only runs at the outermost level */
++	}
++}
++
++void perf_irq_raise(void* vcpu, int32_t cycles) {
++	(void) vcpu;
++	if (ctx_sp < 64) ctx_stack[ctx_sp++] = perf_ctx;
++	perf_ctx = 1;
++	perf_key = PERF_NB * 1 + 60;
++	perfC.cyc[perf_key] += cycles;
++	perfC.irq_entry_cyc += cycles;
++	++perfC.irqs;
++}
++
++void perf_pop(void) {
++	if (ctx_sp > 0) perf_ctx = ctx_stack[--ctx_sp];
++}
++
++/* ---- exported API (ctypes) */
++void* retro_perf_counters(void) { return &perfC; }
++int retro_perf_counters_size(void) { return sizeof(perfC); }
++int retro_perf_snap_size(void) { return sizeof(struct PerfSnap); }
++void retro_perf_reset(void) {
++	uint64_t el = perfC.elapsed;
++	memset(&perfC, 0, sizeof(perfC));
++	perfC.elapsed = el;
++}
++void retro_perf_lut_set(uint32_t pc0, uint32_t pc1, uint32_t val) {
++	for (uint32_t pc = pc0 & ~1u; pc < pc1; pc += 2) {
++		switch (pc >> 24) {
++		case 0: if (pc < 0x4000) perf_lut_bios[pc >> 1] = val; break;
++		case 2: perf_lut_ewram[(pc & 0x3FFFF) >> 1] = val; break;
++		case 3: perf_lut_iwram[(pc & 0x7FFF) >> 1] = val; break;
++		}
++	}
++}
++void retro_perf_set_ctx(uint32_t c) { perf_ctx = c; ctx_sp = 0; }
++uint32_t retro_perf_get_ctx(void) { return perf_ctx | (ctx_sp << 8); }
++/* copy up to max pending snapshots into buf; returns count */
++int retro_perf_drain(void* buf, int max) {
++	int n = 0;
++	while (snap_r != snap_w && n < max) {
++		memcpy((char*) buf + n * sizeof(struct PerfSnap), &snaps[snap_r % PERF_NSNAP], sizeof(struct PerfSnap));
++		++snap_r; ++n;
++	}
++	return n;
++}
++uint32_t retro_perf_lost(void) { return snap_lost; }
++
++/* ---- memory wrappers */
++static inline void perf_acct(struct ARMCore* cpu, uint32_t address, int bytes, int* cc, int before, int base, int write) {
++	unsigned r = (address >> 24) & 15;
++	if (!cc) {
++		if (write) perfC.dma_wr_b[r] += bytes; else perfC.dma_rd_b[r] += bytes;
++		return;
++	}
++	int c = *cc - before;
++	int w = c - base;
++	perfC.memcyc[perf_key] += c;
++	perfC.memwait[perf_key] += w;
++	if (write) {
++		unsigned x = perf_ctx & 3; perfC.wr_n[x][r]++; perfC.wr_b[x][r] += bytes; perfC.wr_w[x][r] += w;
++		if (r == 6) {
++			struct GBA* gba = (struct GBA*) cpu->master;
++			uint16_t ds = gba->memory.io[GBA_REG(DISPSTAT)];
++			perfC.vram_wr_b[(ds & 1) ? 2 : (ds & 2) ? 1 : 0] += bytes;
++		}
++	} else {
++		unsigned x = perf_ctx & 3; perfC.rd_n[x][r]++; perfC.rd_b[x][r] += bytes; perfC.rd_w[x][r] += w;
++	}
++}
++
++#define WRAP_LOAD(NAME, ORIG, BYTES) \
++uint32_t ORIG(struct ARMCore* cpu, uint32_t address, int* cycleCounter); \
++uint32_t NAME(struct ARMCore* cpu, uint32_t address, int* cycleCounter) { \
++	int b = cycleCounter ? *cycleCounter : 0; \
++	uint32_t v = ORIG(cpu, address, cycleCounter); \
++	perf_acct(cpu, address, BYTES, cycleCounter, b, 2, 0); \
++	return v; }
++#define WRAP_STORE(NAME, ORIG, T, BYTES) \
++void ORIG(struct ARMCore* cpu, uint32_t address, T value, int* cycleCounter); \
++void NAME(struct ARMCore* cpu, uint32_t address, T value, int* cycleCounter) { \
++	int b = cycleCounter ? *cycleCounter : 0; \
++	ORIG(cpu, address, value, cycleCounter); \
++	perf_acct(cpu, address, BYTES, cycleCounter, b, 1, 1); }
++WRAP_LOAD(perfLoad32, GBALoad32, 4)
++WRAP_LOAD(perfLoad16, GBALoad16, 2)
++WRAP_LOAD(perfLoad8, GBALoad8, 1)
++WRAP_STORE(perfStore32, GBAStore32, int32_t, 4)
++WRAP_STORE(perfStore16, GBAStore16, int16_t, 2)
++WRAP_STORE(perfStore8, GBAStore8, int8_t, 1)
++
++uint32_t GBALoadMultiple(struct ARMCore* cpu, uint32_t address, int mask, enum LSMDirection direction, int* cycleCounter);
++uint32_t GBAStoreMultiple(struct ARMCore* cpu, uint32_t address, int mask, enum LSMDirection direction, int* cycleCounter);
++uint32_t perfLoadMultiple(struct ARMCore* cpu, uint32_t address, int mask, enum LSMDirection direction, int* cycleCounter) {
++	int b = cycleCounter ? *cycleCounter : 0;
++	uint32_t v = GBALoadMultiple(cpu, address, mask, direction, cycleCounter);
++	int n = __builtin_popcount(mask & 0xFFFF);
++	if (!n) n = 16;
++	perf_acct(cpu, address, 4 * n, cycleCounter, b, n + 1, 0);
++	return v;
++}
++uint32_t perfStoreMultiple(struct ARMCore* cpu, uint32_t address, int mask, enum LSMDirection direction, int* cycleCounter) {
++	int b = cycleCounter ? *cycleCounter : 0;
++	uint32_t v = GBAStoreMultiple(cpu, address, mask, direction, cycleCounter);
++	int n = __builtin_popcount(mask & 0xFFFF);
++	if (!n) n = 16;
++	perf_acct(cpu, address, 4 * n, cycleCounter, b, n, 1);
++	return v;
++}

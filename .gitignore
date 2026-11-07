@@ -1,0 +1,22 @@
+# Bring your own ROM; never commit it
+*.gba
+*.zip
+# Build outputs and generated files
+decoder/vxdec
+decoder/*.so
+decoder/iwram_lut.h
+decoder_out/
+player/
+ref/
+# Captures and run outputs (may contain decoded movie content)
+emu/frames/
+emu/deep*/
+emu/audio/
+emu/manifest/
+emu/states/
+container/out/
+perf/full/
+perf/mgba-src/
+*.wav
+*.y4m
+__pycache__/
