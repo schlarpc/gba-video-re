@@ -8,3 +8,6 @@ repository.workspace = true
 
 [dependencies]
 gbav-common = { path = "../gbav-common" }
+
+[dev-dependencies]
+gbav-testkit = { path = "../gbav-testkit" }

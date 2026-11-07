@@ -1,6 +1,6 @@
 //! VX++ residual decoder: IWRAM 0x03005650 residual_block and 0x03005794 residual_4x4
 //! (escape path 0x030059b4, IDCT/add 0x03005a94/0x03005b2c/0x03005be4, DC-only
-//! 0x03005c9c/0x03005e30/0x03006044). Port of decoder/residual.c; spec docs/residual.md.
+//! 0x03005c9c/0x03005e30/0x03006044). Port of reference/vx/decoder/residual.c; spec docs/vx/residual.md.
 //!
 //! Coefficient VLC = MPEG-4 Part 2 intra TCOEF table with the sign folded into the LUT
 //! entry length; MPEG-4 style 3-mode escape; H.264 4x4 transform.

@@ -1,6 +1,6 @@
 //! VXGB residual decoder: the Rev 5 player's IWRAM 0x03005eb0 residual_block and its callee
 //! 0x030062e0 (4x4 coefficient decode + dequant + IDCT + add). Port of
-//! decoder/vxgb_residual.c; spec docs/vxgb.md section 5.
+//! reference/vx/decoder/vxgb_residual.c; spec docs/vx/vxgb.md section 5.
 //!
 //! Coefficients use the H.264 CAVLC code tables (read from the ROM, in the player's layout)
 //! with a VXGB-specific syntax order and level code. Every bit-reader operation mirrors one

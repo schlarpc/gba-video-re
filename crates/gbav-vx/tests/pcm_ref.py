@@ -1,11 +1,11 @@
 """Usage: pcm_ref.py ROM HEADER_OFFSET OUT.pcm.csv.gz
 
-Reference 16 kHz PCM digests from container/vxaudio.py: per AFrame, md5 of the 128 samples
+Reference 16 kHz PCM digests from tools/vx/container/vxaudio.py: per AFrame, md5 of the 128 samples
 (int32 LE) and md5 of the 512-byte 8-bit output block. Decodes every AFrame of the stream
 (until p + 4 > len or 4 zero bytes, like emu_audio.py). tests/streams.rs reads the
 output through GBAV_VX_PCM_REF (file name <cart>_<off>.pcm.csv.gz)."""
 import sys, struct, hashlib, gzip
-sys.path.insert(0, __import__('os').path.join(__import__('os').path.dirname(__import__('os').path.abspath(__file__)), '..', '..', '..', 'container'))
+sys.path.insert(0, __import__('os').path.join(__import__('os').path.dirname(__import__('os').path.abspath(__file__)), '..', '..', '..', 'tools', 'vx', 'container'))
 import vxaudio
 rom = open(sys.argv[1], 'rb').read()
 H = int(sys.argv[2], 0)

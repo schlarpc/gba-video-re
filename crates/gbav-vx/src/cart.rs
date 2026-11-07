@@ -1,7 +1,8 @@
 //! Cartridge layout: the movie player's RAM images (through the boot loader's program table,
-//! as `container/vxcart.py` does), the player build, and the VX++ / VXGB streams.
+//! as `tools/vx/container/vxcart.py` does), the player build, and the VX++ / VXGB streams.
 
-use crate::util::{le32, Md5};
+use gbav_common::bytes::le32;
+use gbav_common::md5;
 use gbav_common::{Error, Result};
 
 /// The boot loader finds program i by summing the size table at ROM 0x8e4 from ROM 0xa00.
@@ -52,7 +53,7 @@ pub struct PlayerLayout {
 }
 
 /// Player builds seen so far, by md5 of the program image (ROM 0x8a00, 0x10000 bytes).
-/// (sha1 in container/vxcart.py: 7324ebf3... / 33a2f3a7...)
+/// (sha1 in tools/vx/container/vxcart.py: 7324ebf3... / 33a2f3a7...)
 const KNOWN_PLAYERS: [(&str, Variant); 2] = [
     ("7ea5c79032587f66c6b40b0feea97b4f", Variant::VxPP),
     ("9c75deb71bdadaa8f05a2d5a1dadf408", Variant::Vxgb),
@@ -93,7 +94,7 @@ impl PlayerLayout {
                 return Err(bad());
             }
         }
-        let md5 = Md5::digest(&rom[prog..prog + prog_size]);
+        let md5 = md5::digest(&rom[prog..prog + prog_size]);
         Ok(PlayerLayout {
             prog,
             prog_size,
@@ -106,7 +107,7 @@ impl PlayerLayout {
 
     /// The build this player image is (`None` for an unknown build).
     pub fn build(&self) -> Option<Variant> {
-        let h = crate::util::hex(&self.md5);
+        let h = md5::to_hex(&self.md5);
         KNOWN_PLAYERS.iter().find(|(m, _)| *m == h).map(|(_, v)| *v)
     }
 
@@ -143,7 +144,7 @@ pub struct SeekEntry {
     pub audio_byte: u32,
 }
 
-/// A parsed VX header (0x38 bytes, u32 LE; docs/container.md section 2).
+/// A parsed VX header (0x38 bytes, u32 LE; docs/vx/container.md section 2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamHeader {
     /// ROM offset of the header.
@@ -171,7 +172,7 @@ pub struct StreamHeader {
 
 impl StreamHeader {
     /// Parse the header at `off`; `None` unless the magic and dimensions are plausible
-    /// (the same test as container/vxcart.py `find_streams`).
+    /// (the same test as tools/vx/container/vxcart.py `find_streams`).
     pub fn parse(rom: &[u8], off: usize) -> Option<StreamHeader> {
         let variant = Variant::from_magic(rom.get(off..off + 4)?)?;
         let r = |i: usize| le32(rom, off + 4 * i);
@@ -216,7 +217,7 @@ impl StreamHeader {
     }
 
     /// ROM range of the audio elementary stream (codebook + AFrames): audio offset up to the
-    /// chapter table, as container/vxaudio.py's callers slice it.
+    /// chapter table, as tools/vx/container/vxaudio.py's callers slice it.
     pub fn audio_range(&self, rom_len: usize) -> Option<std::ops::Range<usize>> {
         if self.audio_off == 0 {
             return None;
@@ -242,6 +243,20 @@ impl StreamHeader {
                     audio_byte: le32(rom, e + 8)?,
                 })
             })
+            .collect()
+    }
+
+    /// Chapter start frames (`u32 count; u32 start_frame[count]` at header + 0x20); empty
+    /// when the stream has no chapter table. Every chapter starts on a seek point.
+    pub fn chapters(&self, rom: &[u8]) -> Vec<u32> {
+        if self.chapter_off == 0 {
+            return Vec::new();
+        }
+        let c = self.offset + self.chapter_off as usize;
+        let n = le32(rom, c).unwrap_or(0).min(511) as usize;
+        (0..n)
+            .map_while(|i| le32(rom, c + 4 + 4 * i))
+            .filter(|&f| f < self.frames)
             .collect()
     }
 

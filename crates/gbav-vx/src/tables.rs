@@ -2,14 +2,14 @@
 //! these at build time: iwram_lut.h, vxgb_tables.h, and the literal tables in residual.c).
 
 use crate::cart::{PlayerLayout, Variant};
-use crate::util::le32;
+use gbav_common::bytes::le32;
 use gbav_common::{Error, Result};
 
 /// IRQ-table entries `main()` installs in IWRAM before the movie plays (the clamp table's
 /// index range reaches back into them).
 const IRQ_PATCHES: [(usize, u8); 4] = [(0x10, 0x00), (0x11, 0x01), (0x18, 0x2C), (0x19, 0x01)];
 
-/// VX++ residual tables (residual.c / docs/residual.md).
+/// VX++ residual tables (residual.c / docs/vx/residual.md).
 #[derive(Clone)]
 pub struct VxppTables {
     /// EWRAM 0x020010e4: coefficient VLC LUT, index = next 12 bits.
@@ -84,7 +84,7 @@ impl Tables {
             None => {
                 return Err(Error::Format(format!(
                     "unknown movie player build (md5 {}); the decoder tables' addresses are only known for the VX++ and VXGB players",
-                    crate::util::hex(&l.md5)
+                    gbav_common::md5::to_hex(&l.md5)
                 )))
             }
         }

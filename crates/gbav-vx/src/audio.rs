@@ -1,4 +1,4 @@
-//! Actimagine VX audio: port of container/vxaudio.py, the model of the player's IWRAM
+//! Actimagine VX audio: port of tools/vx/container/vxaudio.py, the model of the player's IWRAM
 //! 0x03006a14 decoder (0x03007170 in the VXGB player, same code) and its callees, bit for bit
 //! including 32-bit wraparound, the two 0x400-byte pulse/sample buffers and the 4x
 //! interpolating, noise-shaped 8-bit output stage that feeds Direct Sound FIFO A at 65536 Hz.
@@ -9,7 +9,7 @@
 //! AFrame: LE halfwords w1, w2, then 8/5/4/3 pulse words (mode = (w2>>12)&3); 128 samples at
 //! 16384 Hz.
 
-use crate::util::Interp4Shaper;
+use gbav_common::output::OutputStage;
 
 pub const CODEBOOK_SIZE: usize = 3124;
 pub const PULSE_WORDS: [usize; 4] = [8, 5, 4, 3];
@@ -76,7 +76,7 @@ pub struct AudioState {
     scale: i32,
     toggle: usize,
     /// the output stage (0x03006a54..0x03006b54)
-    shaper: Interp4Shaper,
+    shaper: OutputStage,
     /// oldest first, hist[7] = newest
     hist: [i32; 8],
     b: [[i32; 256]; 2],
@@ -91,7 +91,7 @@ impl AudioState {
             infl40: [0; 8],
             scale: 0,
             toggle: 0,
-            shaper: Interp4Shaper::default(),
+            shaper: OutputStage::new(),
             hist: [0; 8],
             b: [[0; 256]; 2],
         }
@@ -202,7 +202,7 @@ impl AudioState {
             self.scale = self.c.scale_initial; // 0x030069c0
             self.toggle = 1;
             self.hist = [0; 8];
-            self.shaper = Interp4Shaper::default();
+            self.shaper = OutputStage::new();
             self.b[1][128..].fill(0);
             let (i0, i1, i2) = self.pulses(w1, w2, &words, 1);
             let infl = self.filter(self.c.lpc_base, i0, i1, i2);
@@ -248,7 +248,7 @@ impl AudioState {
         };
         self.toggle ^= 1;
         samples.copy_from_slice(&self.b[outb][..128]);
-        self.shaper.run(samples, out);
+        self.shaper.process_u8(samples, out);
         n
     }
 }

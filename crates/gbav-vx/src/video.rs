@@ -1,5 +1,5 @@
 //! VX++ / VXGB video decoder core: an exact model of the player's hand-written ARM decoder
-//! (IWRAM 0x03000520 and callees). Port of decoder/vxdec.c; spec docs/video.md, docs/vxgb.md.
+//! (IWRAM 0x03000520 and callees). Port of reference/vx/decoder/vxdec.c; spec docs/vx/video.md, docs/vx/vxgb.md.
 //!
 //! Memory model: the decoder works inside a 256 KiB image of GBA EWRAM at the player's own
 //! addresses (frame slots, MV array, VXGB nonzero-count grids). Reference reads are

@@ -8,7 +8,7 @@
 use std::io::Write;
 use std::time::Instant;
 
-use gbav_vx::util::{md5_hex, md5_hex_u16};
+use gbav_common::md5::{hex as md5_hex, hex_u16 as md5_hex_u16};
 use gbav_vx::{VxAudio, VxVideo};
 
 fn main() {

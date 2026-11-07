@@ -1,8 +1,8 @@
 //! Actimagine VX++ and VXGB video + VX audio decoder (Shrek, Shark Tale, Shrek 2,
 //! Shrek + Shark Tale GBA Video carts).
 //!
-//! A bit-exact port of the reference C decoder (decoder/vxdec.c, residual.c,
-//! vxgb_residual.c) and of container/vxaudio.py, verified against the emulator hash
+//! A bit-exact port of the reference C decoder (reference/vx/decoder/vxdec.c, residual.c,
+//! vxgb_residual.c) and of tools/vx/container/vxaudio.py, verified against the emulator hash
 //! manifests and differentially against the C decoder (see PORT-NOTES.md).
 //!
 //! * The codec is picked by the stream magic: `VX++` (Rev 6 player) or `VXGB` (Rev 5 player).
@@ -15,7 +15,9 @@
 //!   interleaved U,V 256x80); the displayed picture is the player's mode-3 BGR555 blit
 //!   ([`blit`], brightness 0).
 //! * Audio blocks = one AFrame's 512 bytes of signed 8-bit 65536 Hz output; native PCM =
-//!   its 128 samples at 16384 Hz.
+//!   its 128 samples at 16384 Hz (exact i32).
+//! * Decoders built through [`Codec`] keep the shared ROM ([`gbav_common::Rom`]); nothing is
+//!   copied.
 
 // The decoder mirrors the C reference loop for loop; index loops and wide signatures are kept.
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
@@ -29,13 +31,14 @@ mod fill;
 mod fill_data;
 mod residual;
 pub mod tables;
-pub mod util;
 pub mod video;
 
 use std::ops::Range;
 use std::sync::Arc;
 
-use gbav_common::{AudioDecoder, Codec, Error, Frame, Result, StreamInfo, VideoDecoder};
+use gbav_common::{
+    AudioDecoder, BlockKey, Chapter, Codec, Error, Frame, Result, Rom, StreamInfo, VideoDecoder,
+};
 
 pub use cart::{find_streams, pick_stream, PlayerLayout, SeekEntry, StreamHeader, Variant};
 pub use tables::Tables;
@@ -63,14 +66,19 @@ fn info_of(rom: &[u8], h: &StreamHeader) -> StreamInfo {
         fps_den: 64 * 3 * h.timer.max(1) as u64,
         frames: h.frames,
         seek_points: h.seek_points(rom),
+        chapters: h
+            .chapters(rom)
+            .into_iter()
+            .map(|frame| Chapter { frame, title: None })
+            .collect(),
         audio_rate_hz: h.audio_range(rom.len()).map(|_| AUDIO_RATE),
     }
 }
 
 impl Codec for Vx {
     const FAMILY: &'static str = "vx";
-    type Video = VxVideo<Vec<u8>>;
-    type Audio = VxAudio<Vec<u8>>;
+    type Video = VxVideo<Rom>;
+    type Audio = VxAudio<Rom>;
 
     fn streams(rom: &[u8]) -> Result<Vec<StreamInfo>> {
         let st = find_streams(rom);
@@ -84,22 +92,13 @@ impl Codec for Vx {
         Ok(st.iter().map(|h| info_of(rom, h)).collect())
     }
 
-    /// Copies the stream's video bytes; see [`VxVideo::open`] to decode from a borrowed or
-    /// shared ROM instead.
-    fn video(rom: &[u8], stream: &str) -> Result<Self::Video> {
-        let h = pick_stream(rom, stream)?;
-        let r = h.video_range(rom.len());
-        let len = r.len();
-        VxVideo::with_data(rom, h, rom[r].to_vec(), 0..len)
+    /// Reads the video straight from the shared ROM; no stream bytes are copied.
+    fn video(rom: &Rom, stream: &str) -> Result<Self::Video> {
+        VxVideo::open(rom.clone(), stream)
     }
 
-    fn audio(rom: &[u8], stream: &str) -> Result<Self::Audio> {
-        let h = pick_stream(rom, stream)?;
-        let r = h
-            .audio_range(rom.len())
-            .ok_or_else(|| Error::Invalid(format!("stream {} has no audio", h.id())))?;
-        let len = r.len();
-        VxAudio::with_data(rom, h, rom[r].to_vec(), 0..len)
+    fn audio(rom: &Rom, stream: &str) -> Result<Self::Audio> {
+        VxAudio::open(rom.clone(), stream)
     }
 }
 
@@ -151,15 +150,17 @@ impl Frame for VxFrame {
     fn manifest_bytes(&self) -> &[u8] {
         &self.slot
     }
-    fn bgr555(&self) -> Vec<u16> {
-        let mut out = vec![0u16; (self.width * self.height) as usize];
-        self.bgr555_into(&mut out);
-        out
+    fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+    fn bgr555_into(&self, out: &mut [u16]) {
+        VxFrame::bgr555_into(self, out)
     }
 }
 
-/// Video decoder for one stream. `S` holds the bytes the reader walks: either the whole ROM
-/// ([`VxVideo::open`]) or just the video elementary stream (what [`Codec::video`] copies).
+/// Video decoder for one stream. `S` holds the bytes the reader walks: the whole ROM
+/// ([`VxVideo::open`], what [`Codec::video`] uses with the shared [`Rom`]) or just the video
+/// elementary stream ([`VxVideo::with_data`]).
 pub struct VxVideo<S: AsRef<[u8]> = Vec<u8>> {
     data: S,
     range: Range<usize>,
@@ -362,8 +363,12 @@ pub struct VxAudio<S: AsRef<[u8]> = Vec<u8>> {
     state: AudioState,
     pos: usize,
     blocks: u64,
+    /// AFrame index (from the stream start) of the next block
+    index: u64,
+    /// byte offset -> AFrame index of every seek entry's AFrame, filled on first seek
+    seek_index: Option<Vec<(usize, u64)>>,
     samples: [i32; SAMPLES],
-    pcm: [i16; SAMPLES],
+    out: [u8; OUT_BYTES],
 }
 
 impl<S: AsRef<[u8]>> VxAudio<S> {
@@ -396,8 +401,10 @@ impl<S: AsRef<[u8]>> VxAudio<S> {
             codebook,
             pos: audio::CODEBOOK_SIZE,
             blocks: 0,
+            index: 0,
+            seek_index: None,
             samples: [0; SAMPLES],
-            pcm: [0; SAMPLES],
+            out: [0; OUT_BYTES],
         })
     }
 
@@ -409,15 +416,17 @@ impl<S: AsRef<[u8]>> VxAudio<S> {
     pub fn blocks(&self) -> u64 {
         self.blocks
     }
-    /// The exact 32-bit samples of the block just decoded (16384 Hz); `last_pcm` is these
-    /// saturated to i16.
+    /// The exact 32-bit samples of the block just decoded (16384 Hz), the same as
+    /// [`AudioDecoder::pcm`].
     pub fn last_samples(&self) -> &[i32; SAMPLES] {
         &self.samples
     }
 
     /// Cold start (fresh decoder state) at the AFrame of the seek entry for video `frame`.
-    /// The cart does not reset its audio buffers on a seek, so after a seek the first
-    /// AFrames can differ from a continuous decode until the intra AFrame's state settles.
+    /// Every seek point's AFrame is intra, which resets the synthesis and output state, so the
+    /// blocks from there on equal a continuous decode's. The AFrame index ([`BlockKey::index`])
+    /// continues from the stream start: the first seek walks the AFrame size chain once to map
+    /// seek entries to AFrame indices.
     pub fn seek_frame(&mut self, frame: u32) -> Result<()> {
         let e = self
             .seek
@@ -425,9 +434,44 @@ impl<S: AsRef<[u8]>> VxAudio<S> {
             .find(|e| e.frame == frame && e.frame < self.frames)
             .copied()
             .ok_or_else(|| Error::Invalid(format!("frame {frame} is not a seek point")))?;
+        if self.seek_index.is_none() {
+            let a = &self.data.as_ref()[self.range.clone()];
+            let mut want: Vec<usize> = self.seek.iter().map(|e| e.audio_byte as usize).collect();
+            want.sort_unstable();
+            want.dedup();
+            let mut map = Vec::with_capacity(want.len());
+            let (mut p, mut k, mut w) = (audio::CODEBOOK_SIZE, 0u64, 0);
+            while w < want.len() {
+                while w < want.len() && want[w] < p {
+                    w += 1;
+                }
+                if w < want.len() && want[w] == p {
+                    map.push((p, k));
+                    w += 1;
+                }
+                if p + 4 > a.len() {
+                    break;
+                }
+                p += audio::aframe_size(a, p);
+                k += 1;
+            }
+            self.seek_index = Some(map);
+        }
+        let pos = e.audio_byte as usize;
+        let index = self
+            .seek_index
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|&&(p, _)| p == pos)
+            .map(|&(_, k)| k)
+            .ok_or_else(|| {
+                Error::Format(format!("seek entry {frame}: audio byte {pos} is not on an AFrame boundary"))
+            })?;
         self.state = AudioState::new(self.codebook.clone());
-        self.pos = e.audio_byte as usize;
+        self.pos = pos;
         self.blocks = 0;
+        self.index = index;
         Ok(())
     }
 
@@ -443,24 +487,36 @@ impl<S: AsRef<[u8]>> VxAudio<S> {
         let n = (a.len() - p).min(20);
         fr[..n].copy_from_slice(&a[p..p + n]);
         self.pos += self.state.decode(&fr, &mut self.samples, out);
-        for (d, s) in self.pcm.iter_mut().zip(self.samples.iter()) {
-            *d = (*s).clamp(i16::MIN as i32, i16::MAX as i32) as i16;
-        }
         self.blocks += 1;
+        self.index += 1;
         true
     }
 }
 
 impl<S: AsRef<[u8]>> AudioDecoder for VxAudio<S> {
-    fn next_block(&mut self) -> Result<Option<Vec<u8>>> {
+    fn next_block(&mut self) -> Result<bool> {
         let mut out = [0u8; OUT_BYTES];
-        Ok(if self.next_into(&mut out) {
-            Some(out.to_vec())
-        } else {
-            None
-        })
+        let more = self.next_into(&mut out);
+        if more {
+            self.out = out;
+        }
+        Ok(more)
     }
-    fn last_pcm(&self) -> &[i16] {
-        &self.pcm
+    /// AFrame index from the stream start.
+    fn key(&self) -> BlockKey {
+        BlockKey {
+            frame: None,
+            index: self.index.saturating_sub(1),
+        }
+    }
+    /// The block's 512 bytes of signed 8-bit 65536 Hz output.
+    fn manifest_part(&self, _i: usize) -> &[u8] {
+        &self.out
+    }
+    fn pcm(&self) -> &[i32] {
+        &self.samples
+    }
+    fn seek(&mut self, frame: u32) -> Result<()> {
+        self.seek_frame(frame)
     }
 }

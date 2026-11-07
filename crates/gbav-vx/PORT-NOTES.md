@@ -1,8 +1,8 @@
 # gbav-vx port notes
 
 Rust port of the VX family: VX++ and VXGB video, VX audio, the YUV -> BGR555 blit (clamp
-table overrun, field carries, 2x2 luma dither; brightness 0). Reference: `decoder/vxdec.c`,
-`residual.c`, `vxgb_residual.c`, `bits.h`, `fill_tables.h`; `container/vxcart.py`,
+table overrun, field carries, 2x2 luma dither; brightness 0). Reference: `reference/vx/decoder/vxdec.c`,
+`residual.c`, `vxgb_residual.c`, `bits.h`, `fill_tables.h`; `tools/vx/container/vxcart.py`,
 `vxaudio.py`. Pure Rust, no `unsafe`, no dependencies besides `gbav-common`.
 
 ## Crate layout
@@ -17,26 +17,32 @@ table overrun, field carries, 2x2 luma dither; brightness 0). Reference: `decode
 | `cavlc` | `vxgb_residual.c` | VXGB CAVLC residual + nonzero-count grids |
 | `fill`, `fill_data` | `fill_tables.h` | bilinear / plane fill op lists (see below) |
 | `blit` | `vx_yuv_to_bgr555` | per-stream patched IWRAM clamp table |
-| `audio` | `vxaudio.py` | AFrame decoder; output stage in `util::Interp4Shaper` |
-| `util` | -- | generic helpers (hoist candidates) |
+| `audio` | `vxaudio.py` | AFrame decoder; output stage = `gbav_common::output::OutputStage` |
 
 ## API
 
 - `Vx: gbav_common::Codec` (`FAMILY = "vx"`, stream ids = header offset in hex: `20200`,
-  `1eef800`, ...; an index `0`, `1`, ... is accepted too).
-- `VxVideo<S: AsRef<[u8]>>`: `open(rom, id)` decodes straight from a borrowed / shared ROM;
-  `Codec::video` copies the video elementary stream into a `Vec`. Trait `seek` = cold start at
-  a seek point; `seek_to(frame)` = cold start at the last seek point <= frame and decode
-  forward. In-place API without per-frame allocation: `decode_next()`, `slot()`,
-  `bgr555_into()`, `frame_bit()`, `stats()`, `core()`. `set_strict(false)` keeps decoding
-  through frames that raise decoder error flags (like the C reference) instead of returning
-  `Err(Undefined)`.
-- `VxFrame: Frame`: `manifest_bytes()` = the 0xF000-byte slot, `bgr555()` = the player's
-  mode-3 picture (`width * height`), plus `bgr555_into`, `luma`, `chroma`.
-- `VxAudio<S>: AudioDecoder`: one block = one AFrame = 512 bytes of signed 8-bit 65536 Hz
-  output; `last_pcm()` = its 128 samples at 16384 Hz saturated to i16, `last_samples()` the
-  exact i32 values; `next_into(&mut [u8; 512])` without allocation; `seek_frame(f)` = cold
-  start (fresh state) at a seek point's AFrame. Ends at the zero padding after the last AFrame.
+  `1eef800`, ...; an index `0`, `1`, ... is accepted too). `Codec::video/audio` take the shared
+  `Rom` (`Arc<[u8]>`) and return `VxVideo<Rom>` / `VxAudio<Rom>`, which read straight from it:
+  no stream bytes are copied. `StreamInfo::chapters` = the chapter table (frames only; every
+  chapter is a seek point).
+- `VxVideo<S: AsRef<[u8]>>`: `open(rom, id)` decodes from any borrowed / shared ROM.
+  Trait `seek` = cold start at a seek point; `seek_to(frame)` = cold start at the last seek
+  point <= frame and decode forward. In-place API without per-frame allocation:
+  `decode_next()`, `slot()`, `bgr555_into()`, `frame_bit()`, `stats()`, `core()`.
+  `set_strict(false)` keeps decoding through frames that raise decoder error flags (like the
+  C reference) instead of returning `Err(Undefined)`.
+- `VxFrame: Frame`: `manifest_bytes()` = the 0xF000-byte slot, `size()`, `bgr555_into()` =
+  the player's mode-3 picture (`width * height`), plus `luma`, `chroma`.
+- `VxAudio<S>: AudioDecoder`: one block = one AFrame. `key()` = `{frame: None, index: AFrame
+  index from the stream start}`; `manifest_part(0)` = its 512 bytes of signed 8-bit 65536 Hz
+  output; `pcm()` = its 128 exact i32 samples at 16384 Hz (they exceed 16 bits: Shrek 2 Rev 5
+  reaches -113040..119586). `seek(frame)` = `seek_frame`: cold start (fresh state) at a seek
+  point's AFrame; the AFrame index continues from the stream start (the first seek walks the
+  AFrame size chain once to map seek entries to indices). Since every seek point's AFrame is
+  intra, the blocks after a seek equal a continuous decode's (tested). `next_into(&mut [u8;
+  512])` decodes without allocation. Ends at the zero padding after the last AFrame.
+  `decode_samples` is not supported (VX manifests are per AFrame).
 - `Core` (pub) is the raw decoder: `Core::new(tables, w, h, qp, stream)`, `ew` (the EWRAM
   image), `decode_frame(stream)`, `bits`, `stats`. The fuzz test drives it directly.
 
@@ -72,15 +78,18 @@ re-deriving them at runtime: a runtime derivation needs a small ARM decoder + sy
 executor and the per-build addresses of 16 + 9 + 9 routines, all to reproduce a fixed list
 that is identical for both player builds (the VXGB player runs the same routines; the C
 reference uses one header for both and matches every manifest). Regenerate with
-`python3 decoder/gen_fill.py && python3 crates/gbav-vx/tools/fill_to_rs.py decoder/fill_tables.h > crates/gbav-vx/src/fill_data.rs`.
+`(cd reference/vx/decoder && python3 gen_fill.py) && python3 crates/gbav-vx/tools/fill_to_rs.py reference/vx/decoder/fill_tables.h > crates/gbav-vx/src/fill_data.rs`.
 
 ## Verification (all passed, 2026-11-07)
 
-Env: `GBAV_ROMS=/home/schlarpc/re-shell/tmp/suite/roms`,
-`GBAV_VX_MANIFESTS=/home/schlarpc/re-shell/tmp/suite/vx/src/manifests` (the suite capture: per-block
-audio manifests for all 10 streams, frame manifests for the two Rev 5 VXGB carts that are not in
-verify/streams.json), `GBAV_VX_PCM_REF` (vxaudio.py reference, `tests/pcm_ref.py`),
-`GBAV_VX_FUZZ` (corpus from `tests/fuzz/gen_corpus.py`).
+Env: `GBAV_ROMS` (your ROMs, No-Intro names or verify/carts.csv short ids). Manifests come
+from `verify/vx/` (`GBAV_VERIFY` overrides): frame manifests (yuv_md5, vram_md5),
+`*.frame_bits.json.gz`, `streams.json` (aggregate audio digests), and for audio the per-block
+manifest `<stem>.audio_md5.csv.gz` when present, else the ~30 s segment manifest
+`<stem>.audio_seg_md5.csv.gz`; known cart-side differences from `verify/known.csv` (Shrek 2
+Rev 5 audio from block 296039). Optional: `GBAV_VX_PCM_REF` (vxaudio.py reference,
+`tests/pcm_ref.py`), `GBAV_VX_FUZZ` (corpus from `tests/fuzz/gen_corpus.py`, which uses
+`reference/vx/decoder/libvxdec.so` and the generators in `tools/vx/oracle/`).
 
 `cargo test --release -p gbav-vx --test streams -- --nocapture` (10 streams, about 100 s on 8 threads):
 
@@ -173,31 +182,13 @@ included, take 1.3 s in Rust; vxaudio.py needs about 10 minutes.
 - `VxVideo::open` takes any `S: AsRef<[u8]>` so a caller can share one ROM buffer
   between video and audio decoders instead of copying.
 
-## For the lead
+## Remaining notes
 
-Hoistable helpers (`src/util.rs`):
-- `Md5` streaming MD5 (`new/update/finish/digest`), `md5_hex`, `md5_hex_u16`, `hex`.
-  `gbav_common::md5::digest` copies its input and rebuilds the K table with `sin()` per
-  call; hashing a whole movie (37,837 x (60 KiB slot + 75 KiB picture)) is noticeably slower
-  with it, and the audio aggregate digest wants streaming anyway.
-- `Interp4Shaper`: the VX audio output stage (4x interpolation + error-feedback 8-bit
-  quantiser). If FVMV / Majesco carts use the same Direct Sound stage it belongs in
-  gbav-common's "GBA output stages".
-- `le16` / `le32` bounds-checked readers.
-- Test-side: the manifest readers in `tests/common/mod.rs` (frame / audio manifests,
-  streams.json digest) shell out to `gzip -dc`; a shared inflate in gbav-common (the
-  Hydrogen lane needs DEFLATE anyway) would remove that.
-
-gbav-common change requests:
-1. `Codec::video/audio(rom: &[u8], ..)` return owned decoders, which forces a copy of the
-   stream (53 MB of video for Shrek). Suggest `rom: Arc<[u8]>` (or a lifetime-generic
-   `type Video<'a>`).
-2. `AudioDecoder::last_pcm() -> &[i16]`: VX samples exceed i16 (Shrek 2 Rev 5 reaches
-   -113040..119586; the 8-bit stage clamps them later). Exact PCM needs i32: suggest
-   `&[i32]` or an extra `last_pcm_i32`.
-3. `Frame::bgr555() -> Vec<u16>` allocates per frame; add `bgr555_into(&mut [u16])`.
-4. `AudioDecoder` has no seek; VX (and probably others) can cold-start audio at seek points.
-5. Optional: chapters in `StreamInfo` (VX has a chapter table; every chapter is a seek point).
-
-Workspace note: adding the `gbav-common` dependency changes `Cargo.lock`; that file is
-outside this crate, so it is left uncommitted on this branch (cargo regenerates it).
+- Hoisted into gbav-common and removed here: streaming MD5 (`gbav_common::md5`), `le16`/`le32`
+  (`gbav_common::bytes`), the output stage (`gbav_common::output::OutputStage`, proved equal to
+  the former `Interp4Shaper` on the VX range by a gbav-common test and by every stream's audio
+  manifest). The tests read manifests with `gbav_common::manifest` (no `gzip -dc`).
+- `VxFrame` still owns a copy of the 60 KiB slot per frame (`next_frame`); the in-place
+  `VxVideo::decode_next` + `slot()` path avoids it.
+- The C differential fuzz still needs a Python step (`gen_corpus.py`, ctypes on libvxdec.so)
+  to produce the corpus; it is not a testkit `CLib` harness yet.

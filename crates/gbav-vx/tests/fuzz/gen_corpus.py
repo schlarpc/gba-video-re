@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """Differential fuzz corpus: random valid VX++ / VXGB frames run through the reference C
-decoder (decoder/libvxdec.so via ctypes); tests/fuzz_c.rs replays every case in Rust and
+decoder (reference/vx/decoder/libvxdec.so via ctypes); tests/fuzz_c.rs replays every case in Rust and
 compares the whole 256 KiB EWRAM image, the final bit position and the error count.
 
 Generators (reused from the repo):
-  VX++  decoder/fuzz.py Gen (every mode at every partition size, MVs leaving the picture, big
+  VX++  tools/vx/oracle/fuzz.py Gen (every mode at every partition size, MVs leaving the picture, big
         se() values, intra at picture edges, QP changes), extended here with real residual
         coefficients: a VX++ TCOEF encoder built from the ROM's VLC LUT, all three escape
         modes, DC-only and full blocks, all CBPs, positions up to the 16th.
-  VXGB  decoder/fuzz_vxgb.py Gen + Tables (CAVLC for every nC class, the level escape,
+  VXGB  tools/vx/oracle/fuzz_vxgb.py Gen + Tables (CAVLC for every nC class, the level escape,
         suffixLength growth, all QPs, random nonzero-count grids).
 Each case: 1..3 consecutive frames with random reference / output slot memory. A share of
 cases ("garbage") replace the tail of a valid stream with random bits, which drives both
 decoders through their error paths (they must still agree byte for byte).
 
-  gen_corpus.py --lib cref/decoder/libvxdec.so --vxpp-rom SHREK.gba --vxgb-rom SHREK_REV5.gba \
+  gen_corpus.py --lib reference/vx/decoder/libvxdec.so --vxpp-rom SHREK.gba --vxgb-rom SHREK_REV5.gba \
                 --cases 2000 --seed 1 --out vx_fuzz.bin
 
-Build the C library from the repo's decoder/ (make ROM=<VX++ cart> VXGB_ROM=<VXGB cart>).
+Build the C library with make -C reference/vx/decoder (ROM=<VX++ cart> VXGB_ROM=<VXGB cart>).
 Corpus format (LE): b"VXFZ", u32 ncases; per case: u8 variant (0 VX++, 1 VXGB), u8 nframes,
 u32 qp, u32 stream_len, stream, u32 nwrites, {u32 ewram_off, u32 len, bytes}*,
 then the C result: 16-byte md5 of EWRAM, u32 bitpos, u32 errors.
@@ -32,8 +32,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
-sys.path.insert(0, os.path.join(REPO, "decoder"))
-sys.path.insert(0, os.path.join(REPO, "container"))
+sys.path.insert(0, os.path.join(REPO, "tools", "vx", "oracle"))
+sys.path.insert(0, os.path.join(REPO, "tools", "vx", "container"))
 import fuzz as fz      # noqa: E402  (VX++ generator)
 import fuzz_vxgb as fg  # noqa: E402  (VXGB generator + CAVLC tables)
 import vxcart          # noqa: E402

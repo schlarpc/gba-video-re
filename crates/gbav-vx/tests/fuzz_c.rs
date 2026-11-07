@@ -7,7 +7,7 @@
 
 mod common;
 
-use gbav_vx::util::{hex, Md5};
+use gbav_common::md5::{digest, to_hex as hex};
 use gbav_vx::{Core, Tables, Variant};
 
 fn rd32(b: &[u8], p: &mut usize) -> u32 {
@@ -23,8 +23,8 @@ fn fuzz_against_c() {
         return;
     };
     let (Some(pp), Some(gb)) = (
-        common::load_rom(common::cart("shrek-rev6")),
-        common::load_rom(common::cart("shrek-rev5")),
+        common::load_rom(&common::cart("shrek-rev6")),
+        common::load_rom(&common::cart("shrek-rev5")),
     ) else {
         return;
     };
@@ -59,7 +59,7 @@ fn fuzz_against_c() {
             for _ in 0..nframes {
                 core.decode_frame(stream);
             }
-            let got_md5 = Md5::digest(&core.ew[..]);
+            let got_md5 = digest(&core.ew[..]);
             let (got_bit, got_err) = (core.bits.bitpos(), core.stats.err as u32);
             total += 1;
             with_err += (want_err > 0) as usize;
@@ -71,7 +71,7 @@ fn fuzz_against_c() {
                 fails.push(format!(
                     "{path} case {case} ({}, {nframes} frames): ewram {} bits {got_bit}/{want_bit} err {got_err}/{want_err}",
                     if vxgb == 1 { "VXGB" } else { "VX++" },
-                    if got_md5 == want_md5 { "same".to_string() } else { format!("DIFF {} vs {}", hex(&got_md5), hex(want_md5)) }
+                    if got_md5 == want_md5 { "same".to_string() } else { format!("DIFF {} vs {}", hex(&got_md5), hex(want_md5.try_into().unwrap())) }
                 ));
             }
         }

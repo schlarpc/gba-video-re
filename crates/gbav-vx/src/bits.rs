@@ -1,5 +1,5 @@
 //! The player's register-level video bit reader (IWRAM 0x030007a8 refill, 0x0300076c ue(v),
-//! 0x0300081c se(v)); a port of decoder/bits.h.
+//! 0x0300081c se(v)); a port of reference/vx/decoder/bits.h.
 //!
 //! r1 = halfword read pointer (`pos`), r2 = count (`cnt`; valid bits in `buf` = cnt + 16),
 //! r3 = MSB-first bit buffer (`buf`). The stream is little-endian u16 halfwords consumed

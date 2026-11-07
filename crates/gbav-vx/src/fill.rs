@@ -1,6 +1,6 @@
 //! The bilinear (mode 4) and "plane" (intra mode 3) recursive-bisection fills.
 //!
-//! The player implements each block size as straight-line ARM code. decoder/gen_fill.py
+//! The player implements each block size as straight-line ARM code. reference/vx/decoder/gen_fill.py
 //! symbolically executed those routines into exact op lists; the lists are checked in as
 //! Rust data (`fill_data.rs`, converted by tools/fill_to_rs.py). They are not ROM bytes: they
 //! record which bytes each store averages, in the routine's order, which also fixes what an
