@@ -1,0 +1,48 @@
+name,sha1,size,serial,family,engine,build,notes
+Game Boy Advance Video - All Grown Up! - Volume 1 (USA),02158627fd5a526f848077440182fa92ad87ea3f,33554432,MGUE,hydrogen,Hydrogen crt table,04cbcc07fe42,
+Game Boy Advance Video - Cartoon Network Collection - Edition Platinum (France),01564b86644cf43f49320e0c05854896f8c60c2f,33554432,MCNF,ads,SFCD archive,bfa01253c3c5,French release; Settings text sets BaseBrightness 2
+Game Boy Advance Video - Cartoon Network Collection - Edition Premium (France),f63052e2b53c42601f53148bee69f89d9591fbf9,33554432,MCPF,ads,SFCD archive,e3117652326c,French release
+Game Boy Advance Video - Cartoon Network Collection - Edition Speciale (France),73cbdd82640f166737173b0e8197d771d7906a91,33554432,MCSF,ads,SFCD archive,e3117652326c,French release
+Game Boy Advance Video - Cartoon Network Collection - Limited Edition (USA),ac63a7691774bde6eaad4c2c5c4d305e7cc0535a,33554432,MCME,ads,SFCD archive,e0080e16dac3,
+"Game Boy Advance Video - Cartoon Network Collection - Platinum Edition (USA, Europe)",0cf9b536f87cb21f738bd7552e95bd114b0f0b2e,33554432,MCNE,ads,SFCD archive,e0080e16dac3,
+"Game Boy Advance Video - Cartoon Network Collection - Premium Edition (USA, Europe)",d0fe380fcdf5b1bb99188ed95c8c3272cbb65ce8,33554432,MCPE,ads,SFCD archive,e0080e16dac3,
+"Game Boy Advance Video - Cartoon Network Collection - Special Edition (USA, Europe)",5f17d2ec1a3ba1d605d486b6f6abcde6d82df767,33554432,MCSE,ads,SFCD archive,e0080e16dac3,
+Game Boy Advance Video - Cartoon Network Collection - Special Edition (USA) (Rev 5),86f257c7b8d8feaee0a7e7dd5f5ba48053fd633e,33554432,MCSE,ads,,,"not dumped/available to this project; unverified; family assumed from the (USA, Europe) release"
+"Game Boy Advance Video - Cartoon Network Collection - Volume 1 (USA, Europe)",3227d82e64024a5dc0e5b7f3fd768b0fec19e9b0,33554432,MCTE,hydrogen,Hydrogen crt table,f5f0564f89e3,
+"Game Boy Advance Video - Cartoon Network Collection - Volume 2 (USA, Europe)",692ffa1856780edd28b3aa55526ad06eeddc292e,33554432,MC2E,ads,SFCD archive,e0080e16dac3,
+"Game Boy Advance Video - Codename - Kids Next Door - Volume 1 (USA, Europe)",5e78808676213d6e5b55a78560fc47112f3008d4,33554432,MKDE,hydrogen,Hydrogen crt table,dff48b69f680,
+Game Boy Advance Video - Disney Channel Collection - Volume 1 (USA),53069a5a8b564495ad800f0685b4d1970859b0f8,33554432,MDCE,ads,SFCD archive,882a917e99c5,
+Game Boy Advance Video - Disney Channel Collection - Volume 2 (USA) (Rev 5),6bb825bd00a8daae329ea40cdbfd3db48547585e,33554432,,ads,SFCD archive,17d6ab8a82ba,64 MiB Matrix mapper cart with all data in the first 32 MiB; a 64 MiB overdump (0xFF tail) also exists
+Game Boy Advance Video - Dora the Explorer - Volume 1 (USA),67fe664bdadc7927ba888014ea923f11e3334b6c,33554432,MDRE,hydrogen,Hydrogen crt table,ff6e0e4279e0,
+Game Boy Advance Video - Dragon Ball GT - Volume 1 (USA),dc85cccc0cede3fc11d257995cd7d3cc64ca00e0,33554432,MDBE,ads,SFCD archive,e19d3efb314e,
+Game Boy Advance Video - Nicktoons - Volume 3 (USA),2732103fda15d8fb017f21023d2fda22ae7a548a,33554432,MN3E,ads,SFCD archive,f364f46e4bef,
+Game Boy Advance Video - Nicktoons Collection - Volume 1 (USA),b3bf6d95b548a82808a109cefaaf8b0c22ca66f2,33554432,MNCE,hydrogen,Hydrogen crt table,c1313a3736b4,
+Game Boy Advance Video - Nicktoons Collection - Volume 2 (USA),03a767124f034b1eea51ab84ba6e80ec76f7f50c,33554432,MN2E,ads,SFCD archive,69261e8948ae,
+Game Boy Advance Video - Pokemon - Volume 1 (USA),ad0164df397860b0967590ee46ca1f41d6cecdcd,33554432,MPAE,fvmv,ARM SDT regions,a7e6307ff34a,
+Game Boy Advance Video - Pokemon - Volume 2 (USA),e7b2e00d6a60e8c149cd07b0ee8d98bf2b4efd15,33554432,MPBE,fvmv,ARM SDT regions,a7e6307ff34a,
+Game Boy Advance Video - Pokemon - Volume 3 (USA),0f0020ef4278e1777baaf74b6787355a5cb57d50,33554432,MPCE,fvmv,ARM SDT regions,a7e6307ff34a,
+Game Boy Advance Video - Pokemon - Volume 4 (USA),fd79b821ff601e0091f19ab9c86b08f1c39ea2f3,33554432,MPDE,fvmv,ARM SDT regions,a7e6307ff34a,
+Game Boy Advance Video - Shark Tale (USA) (Rev 6),9bc5b60793b8a6de3b80eb2c213cd125e1fa468e,67108864,MSAE,vx,Actimagine loader,344d68b1e9aa,VX++ stream; 64 MiB Matrix mapper cart
+Game Boy Advance Video - Shark Tale (USA) (Rev 5),6128a476edb10e6839ac5bd2697e83b9b7a9b234,67108864,MSAE,vx,Actimagine loader,0600eda5896e,VXGB stream; 64 MiB Matrix mapper cart
+Game Boy Advance Video - Shrek (USA) (Rev 5),2dedea86ec289a0e31089299613d9f74cca03609,67108864,MSKE,vx,Actimagine loader,0600eda5896e,VXGB stream; 64 MiB Matrix mapper cart
+Game Boy Advance Video - Shrek (USA) (Rev 6),95d612057682b7b886441d387b167ba2493e49ef,67108864,MSKE,vx,Actimagine loader,344d68b1e9aa,VX++ stream; 64 MiB Matrix mapper cart
+Game Boy Advance Video - Shrek + Shark Tale (USA) (Rev 5),f23390b7a62c605fbce6730addc29d381488e076,67108864,MSTE,vx,Actimagine loader,344d68b1e9aa,VX++ stream; 64 MiB Matrix mapper cart; 4 streams: two 240x112 movies and two 240x160 credits
+Game Boy Advance Video - Shrek 2 (USA) (Rev 5),5cd627e205020297b25d707131883be5850515fe,67108864,M2SE,vx,Actimagine loader,0600eda5896e,VXGB stream; 64 MiB Matrix mapper cart
+Game Boy Advance Video - Shrek 2 (USA) (Rev 6),3bcb4acc5da539bc1b91c9537bf7ffa081ded1d4,67108864,M2SE,vx,Actimagine loader,344d68b1e9aa,VX++ stream; 64 MiB Matrix mapper cart
+Game Boy Advance Video - Sonic X - Volume 1 (USA),dc4c959a7740315d892633869f7fc6382aadbb0e,33554432,MSHE,hydrogen,Hydrogen crt table,04cbcc07fe42,
+Game Boy Advance Video - Sonic X - Volume 2 (USA) (Proto),00257021d9c4444e96d96331fb6eb07e756f53cc,32022872,!none,hydrogen,Hydrogen crt table,96a25377cb75,"prototype (17 March 2004); size not a power of two, dump complete; the triage classifier said UNKNOWN"
+Game Boy Advance Video - SpongeBob SquarePants - Volume 1 (USA) (Rev 1),65f6b06c5397b9406960050025361550e0ff2e92,33554432,MSSE,hydrogen,Hydrogen crt table,92e428ed134d,
+Game Boy Advance Video - SpongeBob SquarePants - Volume 2 (USA) (Rev 1),c4caa875f93657626bf73541ddd61eb5c8b4957e,33554432,MS2E,hydrogen,Hydrogen crt table,92e428ed134d,
+Game Boy Advance Video - SpongeBob SquarePants - Volume 3 (USA),fa11aeef21cdd18fcfea281990030acb65c7aa96,33554432,MS3E,ads,SFCD archive,69261e8948ae,
+Game Boy Advance Video - Strawberry Shortcake - Volume 1 (USA),f84cc8a33e3a75e42f4e8023a5cc851c92ea409a,33554432,MSBE,hydrogen,Hydrogen crt table,c3b335b0b286,
+Game Boy Advance Video - Super Robot Monkey Team - Hyper Force Go! - Volume 1 (USA),e3bce6ddf9437bded89fc662e992c1ab0aa1dbba,33554432,MSRE,ads,SFCD archive,bde72f6aba53,
+Game Boy Advance Video - Teenage Mutant Ninja Turtles - Le Demenagement (France),1c7444a45c9bd15b1643c195832497881955acee,33554432,MTMF,ads,SFCD archive,bfa01253c3c5,French release
+Game Boy Advance Video - Teenage Mutant Ninja Turtles - The Shredder Strikes (USA) (Proto),4da1ad120fd07f6837c2cdd3f595d12274906774,32456184,!none,ads,SFCD archive,73b2d7da03af,prototype; size not a power of two
+"Game Boy Advance Video - Teenage Mutant Ninja Turtles - Things Change (USA, Europe)",8b9665ce2cefd663f7722f38b64f9271f7c00daa,33554432,MTME,hydrogen,Hydrogen crt table,93fe5e2e96b3,
+Game Boy Advance Video - The Adventures of Jimmy Neutron Boy Genius - Volume 1 (USA),1414c55bd3d252fdc05c0a94085f12dddf86ea31,33554432,MJME,ads,Hydrogen crt table,22db83f74bdf,Hydrogen engine + ADS codec
+Game Boy Advance Video - The Fairly OddParents! - Volume 1 (USA),42e343e5048f99f05f7cde5aad6bfcc3d2410399,33554432,MFOE,hydrogen,Hydrogen crt table,1c25494320ba,
+Game Boy Advance Video - The Fairly OddParents! - Volume 2 (USA) (Rev 1),5b8a83410d8f9de12113e2974d65b5790aaf62fb,33554432,MF2E,hydrogen,Hydrogen crt table,92e428ed134d,
+Game Boy Advance Video - The Proud Family - Volume 1 (USA),31a2cbb9b1b5adf7de399eecf2a9cec4f5412767,33554432,MFPE,ads,SFCD archive,bde72f6aba53,
+Game Boy Advance Video - Yu-Gi-Oh! - Noah's Final Threat (USA) (Proto),bd26064f5aab66db66f4ed9af52efe3d604ef1d2,32760952,!none,ads,Hydrogen crt table,8831b3ba8f06,prototype; Hydrogen engine + ADS codec; size not a power of two
+"Game Boy Advance Video - Yu-Gi-Oh! - Yugi vs. Joey (USA, Europe)",6daf15bb61a10d1bbf94009886d6a76f9c937f8b,33554432,MYGE,hydrogen,Hydrogen crt table,f73d177a8155,
+Game Boy Advance Video - Yu-Gi-Oh! - Yugi vs. Joey (France),8fb43e5018cf2d4b1a2aa2d1693862ce248ab6b0,33554432,MYGF,ads,SFCD archive,bfa01253c3c5,French release
