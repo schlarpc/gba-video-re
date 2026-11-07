@@ -85,7 +85,7 @@ segment both `back` and `fwd` point to its own start. A rewind from inside a seg
 lands on the start of the previous segment. The set of seek points is the union of all `back`
 and `fwd` targets: 93 to 162 per stream, 3 to 225 frames apart (about 6 to 30 s). The player
 treats a `fwd` that does not point forward as "no next seek point". The player uses the links for fast forward, rewind and chapter skip
-(see [player.md](player.md)). All 992 seek-point frames decode to the same picture whatever the
+(see [player.md](player.md)). All 994 seek-point frames decode to the same picture whatever the
 memory contents, so seeking is exact. **(data)(emu)**
 
 **Audio interleave.** A normal record carries 8 audio blocks (320 bytes = 2048 samples at

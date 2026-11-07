@@ -21,7 +21,7 @@ section 1).
 
 - **Container.** A small header (magic `FVMV`) and a stream of frames with no per-frame index.
   Header word +0x10 is the frame period in scanlines (1704), so the frame rate is 7.99171 fps.
-  There are 992 seek points, all of them keyframes. One extra audio block is inserted every
+  There are 994 seek points, all of them keyframes. One extra audio block is inserted every
   125 frames to keep the audio locked to the frame clock.
 - **Video.** 240x160, 16-bit pixels. Blocks are split by recursive halving from 8x8 down to
   1x2 / 2x1 (15 sizes). The modes are: copy in place or with a motion vector (range +-8,

@@ -25,7 +25,7 @@ no native decoder.
 | Frame rate | "8 fps" | 1704 scanlines per frame = **7.99171 fps**; the header field at +0x10 is that period ("player clock value" in mobipeg) | **corrected / new** |
 | Header +0x18 | "configuration, unnamed" | size of the largest record; never read | new |
 | Header +0x1c | "configuration, unnamed" | sizes the decoded-PCM buffer (2 x value bytes) | new |
-| Record header +0x04 / +0x08 | "player timing/control value" | `back` / `fwd`: offsets to the previous and next **seek point**. Seek points are true keyframes (all 992 verified) and drive FF / rewind / skip | **new** |
+| Record header +0x04 / +0x08 | "player timing/control value" | `back` / `fwd`: offsets to the previous and next **seek point**. Seek points are true keyframes (all 994 verified) and drive FF / rewind / skip | **new** |
 | Video payload size | "compressed payload is video_size - 4 bytes; the bit reader can read up to four bytes beyond it" | `vlen` is the payload size. The bit and colour streams are consumed exactly, and the MV stream ends with 0-3 padding bytes. The bit reader never reads past `nbits` in any of the 80,972 frames | **corrected** |
 | Substreams | "control / literals / indices_and_motion" | bit stream (u32 words, MSB-first, first bit discarded) / RGB555 colours and offsets / MV bytes | agrees, now fully specified |
 | Block grammar, modes, MV table, edge rules, pixel arithmetic | "recursive block grammar over 8x8 cells; leaves copy, apply indexed motion, interpolate neighbours or reconstruct literal colors" | full grammar for all 15 block sizes, 8 operations with exact 32-bit arithmetic (bit 15 is state), MV table formula, row wrap of vectors (about 3-4 per frame), memory layout | **new** |
