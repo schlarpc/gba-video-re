@@ -419,7 +419,9 @@ static void intra_4x4(vx_dec *d, int w, int h)
  * at 0x0203f5d3. The 16x16/16x8/8x16/8x8 dispatchers zero the block's entries after every
  * mode without residual (0x03001b20, 0x03002040, 0x03003190, 0x03003720), except a split
  * into 8x8-or-larger halves, which zero (or code) their own entries; blocks smaller than
- * 8x8 never touch the grids, and split pointers only move for 8-row / 8-column halves. */
+ * 8x8 never touch the grids, and split pointers only move for 8-row / 8-column halves.
+ * So each MB rewrites all its entries every frame; only the never-written border entries
+ * (row -1, column -1) are read without having been written in the same frame. */
 #define VXGB_NZY_START 0x3EB8Au
 #define VXGB_NZY_STRIDE 0x41
 #define VXGB_NZC_START 0x3F5D3u

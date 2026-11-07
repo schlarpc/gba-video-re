@@ -7,8 +7,8 @@ Exercises what VXGB changes: residuals at 16x16 / 16x8 / 8x16 / 8x8 with all 32 
 CAVLC coefficient blocks for every nC class (0-1, 2-3, 4-7 trees and the >= 8 FLC, chroma
 U/V sharing one nC), every TotalCoeff / trailing-ones / total_zeros / run_before combination,
 level prefixes up to 14, the 15-zero escape with 11-bit suffixes, suffixLength growth to 5,
-all QPs 0..51, and the grid bookkeeping of every mode and split (zeroing, stale entries
-under sub-8x8 partitions). The rest of the grammar (MC, intra) is generated as in fuzz.py.
+all QPs 0..51, and the grid bookkeeping of every mode and split. The grids start with random
+counts, so the never-written border entries (row -1, column -1) feed random nC values. The rest of the grammar (MC, intra) is generated as in fuzz.py.
 
   fuzz_vxgb.py --rom CART.gba [--cases N] [--seed S] [--resprob P]
 Compares the whole EWRAM image after decoding (4 slots incl. padding, both nnz grids, MV

@@ -26,6 +26,7 @@ Their player program is byte-identical to Shrek's; see [Other cartridges](#other
 | [video.md](docs/video.md) | The video bitstream: bit reader, frame header, macroblock and partition grammar, all 12 block modes, motion-vector prediction, motion compensation, intra predictors, and reference-frame rotation. |
 | [residual.md](docs/residual.md) | Residual coding: coded-block pattern, the coefficient VLC (the MPEG-4 intra TCOEF table), escape codes, zigzag scan, H.264-style dequantisation and the 4×4 inverse transform. |
 | [emu.md](docs/emu.md) | How the ground truth was made. Headless mGBA (libretro core driven through ctypes) captures decoded frames. A unicorn harness runs the cartridge's own decoder code one frame at a time. |
+| [vxgb.md](docs/vxgb.md) | VXGB, the older codec revision on the *Shark Tale* and *Shrek 2* Rev 5 cartridges: every difference from VX++ (no frame header, header QP, H.264 CAVLC residual tables behind a different syntax, persistent nC grids, player memory map). |
 | [perf.md](docs/perf.md) | CPU, memory, cartridge bus, DMA, display and audio use over the whole movie, measured with an instrumented mGBA. |
 
 ## Code
@@ -38,6 +39,7 @@ Their player program is byte-identical to Shrek's; see [Other cartridges](#other
 | `perf/` | The mGBA instrumentation patch, a cycle-cost model, per-frame and per-tick CSVs (gzipped), and plots. |
 | `residual/` | Generators for the residual tables, and the check against the MPEG-4 codebook. |
 | `tools/` | `extract_images.py` copies the player's RAM images out of your ROM. The unicorn tools and the table generators need them. |
+| `decoder/` (VXGB) | `vxgb_residual.c` (CAVLC residuals), `gen_vxgb_tables.py` (copies the tables from a Rev 5 ROM at build time), `uc_oracle_vxgb.py`, `fuzz_vxgb.py`, `verify_vxgb.py`. |
 | `verify/` | Hashes only: the md5 of every decoded frame from the emulator, and the start bit of every frame. |
 
 ## Quick start
@@ -89,8 +91,8 @@ Full sha1s are in `verify/streams.json`. "All match" means all of these checks p
 - Every audio frame matches the player's ARM routine run in unicorn, for the whole stream.
 - Every audio block the cartridge plays matches the emulator.
 
-The Rev 5 *Shark Tale* and *Shrek 2* cartridges use the older "VXGB" format, which these tools
-do not cover.
+The Rev 5 *Shark Tale* and *Shrek 2* cartridges use the older "VXGB" format; see below and
+[docs/vxgb.md](docs/vxgb.md).
 
 The loader, all three programs and the player's EWRAM and IWRAM images are byte-identical on
 all four cartridges. Only the cartridge header and the menu data at ROM 0x20000 differ.
@@ -111,6 +113,25 @@ The streams differ from Shrek in the following ways. The decoder needed only the
   than 31. The blitter adds the colour fields together, so a large value carries into the
   next field. Shrek never reaches this. Shark Tale does in 4 frames, and the combo cart's
   Shark Tale in 30 frames. The decoder had modelled it with OR; it now adds.
+
+### VXGB (Rev 5 *Shark Tale* and *Shrek 2*)
+
+*Shark Tale* (USA) (Rev 5) and *Shrek 2* (USA) (Rev 5) use an older player whose streams start
+with `VXGB` (see [docs/vxgb.md](docs/vxgb.md)). vxdec detects the magic and decodes them;
+vxdemux, emu_audio and capture.py accept them too. Building VXGB support needs one Rev 5 dump
+for its code tables:
+
+```sh
+make -C decoder VXGB_ROM=../sharktale.gba      # or put sharktale.gba / shrek2.gba at the root
+decoder/vxdec sharktale.gba --count 70 --out out/
+python3 decoder/verify_vxgb.py sharktale.gba   # whole movie vs emulator hashes + every seek point
+```
+Without a VXGB ROM the build still works and decodes VX++ only.
+
+| cartridge | sha1 | status |
+|---|---|---|
+| Shark Tale (USA) (Rev 5) | `6128a476edb10e6839ac5bd2697e83b9b7a9b234` | video: all 37,697 frames match the emulator, all 191 seek points; audio: all 689,317 AFrames match the ARM routine |
+| Shrek 2 (USA) (Rev 5) | `5cd627e205020297b25d707131883be5850515fe` | video: all 38,816 frames match the emulator, all 197 seek points; audio: all 709,779 AFrames match the ARM routine (the emulated cart underruns its audio window late in the movie, see vxgb.md 9) |
 
 ## Licence
 

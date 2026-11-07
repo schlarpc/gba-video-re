@@ -38,7 +38,11 @@ VX = 0x20200
 # concatenated hex md5s of those 512-byte blocks, as emu/mkmanifest.py computes it)
 MOVIES = {
     "6128a476edb10e6839ac5bd2697e83b9b7a9b234": ("sharktale-rev5_20200", 689240, "f6fa7b811f49a3a32412ee39bd55ebb3"),
-    "5cd627e205020297b25d707131883be5850515fe": ("shrek2-rev5_20200", 709698, "2e831e52abb536df79fd9ca58bf1fc4a"),
+    # Shrek 2: the emulator's playback underruns the audio window at block 296039 (the main
+    # loop refills it only between video frames, and frame 16191 took too long), so the
+    # cart then plays misaligned AFrames; only the blocks before that are the codec's output.
+    # Digest of all 709698 played blocks: 2e831e52abb536df79fd9ca58bf1fc4a.
+    "5cd627e205020297b25d707131883be5850515fe": ("shrek2-rev5_20200", 296039, "2a0d1aa3b4308d6f55c7792125deb312"),
 }
 
 
