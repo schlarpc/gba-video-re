@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Verify vxdec against ground truth.
 
+  verify.py [--rom ROM] [--stream OFF|IDX] [modes]
+
+The ROM (default ../shrek.gba) is identified by its sha1 in verify/streams.json, which names
+the hashes-only manifest of each stream (whole movie, captured with emu/capture.py
+--hash-only). A local emu/manifest/ capture is used instead for Shrek when present.
+
 Modes (combine freely; default = --manifest --frames --seek):
   --manifest   decode the whole movie from power-on in one pass; compare md5(slot) with
                emu/manifest yuv_md5 and md5(BGR555) with vram_md5, for every frame.
@@ -13,12 +19,16 @@ Modes (combine freely; default = --manifest --frames --seek):
                manifest: proves every seek point is a self-contained keyframe.
   --oracle N   run the real ARM decoder (uc_oracle.py, unicorn) for frames 0..N-1 and
                compare slots and per-MB start bits with vxdec --trace.
+  --audio      decode every AFrame with container/vxaudio.py and compare the 512-byte
+               blocks the cartridge plays (count and md5 of the per-block md5 list in
+               streams.json). Python, about 10 min per movie.
 Exit status 0 only if everything matched.
 """
 import argparse
 import csv
 import gzip
 import hashlib
+import json
 import os
 import struct
 import subprocess
@@ -30,10 +40,26 @@ ROM = os.path.join(SHREK, "shrek.gba")
 EMU = os.path.join(SHREK, "emu")
 VXDEC = os.path.join(HERE, "vxdec")
 VX = 0x20200
+SHREK_SHA1 = "95d612057682b7b886441d387b167ba2493e49ef"
+STREAMS = os.path.join(SHREK, "verify", "streams.json")
+sys.path.insert(0, os.path.join(SHREK, "container"))
+import vxcart  # noqa: E402
+
+
+def stream_info():
+    """This ROM/stream's entry in verify/streams.json (manifest file, audio digest)."""
+    sha = hashlib.sha1(open(ROM, "rb").read()).hexdigest()
+    carts = json.load(open(STREAMS))
+    if sha not in carts:
+        sys.exit(f"ROM sha1 {sha} is not in verify/streams.json")
+    st = carts[sha]["streams"].get(f"0x{VX:x}")
+    if st is None:
+        sys.exit(f"no manifest for stream 0x{VX:x} of {carts[sha]['name']}")
+    return sha, carts[sha]["name"], st
 
 
 def run_vxdec(args):
-    r = subprocess.run([VXDEC, ROM] + args, capture_output=True, text=True)
+    r = subprocess.run([VXDEC, ROM, "--stream", hex(VX)] + args, capture_output=True, text=True)
     if r.returncode not in (0, 3):
         sys.exit(f"vxdec failed: {r.stderr}")
     out = {}
@@ -43,12 +69,12 @@ def run_vxdec(args):
     return out, r.stderr
 
 
-def load_manifest():
+def load_manifest(info):
     full = os.path.join(EMU, "manifest", "frames", "index.csv")
-    if os.path.exists(full):
+    if info[0] == SHREK_SHA1 and VX == 0x20200 and os.path.exists(full):
         rows = csv.DictReader(open(full))
     else:  # hashes-only copy shipped in the repo
-        rows = csv.DictReader(gzip.open(os.path.join(SHREK, "verify", "frame_md5.csv.gz"), "rt"))
+        rows = csv.DictReader(gzip.open(os.path.join(SHREK, "verify", info[2]["frames_md5"]), "rt"))
     return {int(r["frame"]): (r["yuv_md5"], r["vram_md5"]) for r in rows}
 
 
@@ -103,7 +129,7 @@ def check_frames():
         start = max([e[0] for e in st if e[0] <= lo] or [0])
         tmp = os.path.join(HERE, "..", "decoder_out", f"verify_{sub.split('/')[0]}")
         os.makedirs(tmp, exist_ok=True)
-        subprocess.run([VXDEC, ROM, "--start-frame", str(start), "--count", str(hi - start + 1),
+        subprocess.run([VXDEC, ROM, "--stream", hex(VX), "--start-frame", str(start), "--count", str(hi - start + 1),
                         "--out", tmp, "--rgb"], check=False, capture_output=True)
         good = vgood = vn = 0
         for f in fr:
@@ -147,13 +173,13 @@ def check_oracle(nf):
     print(f"== unicorn oracle (real ARM decoder), frames 0..{nf - 1}, per-MB bit positions ==")
     sys.path.insert(0, HERE)
     from uc_oracle import Oracle
-    o = Oracle(ROM)
+    o = Oracle(ROM, VX)
     o.reset(None)
     tr = os.path.join(HERE, "..", "decoder_out", "verify_trace.txt")
     os.makedirs(os.path.dirname(tr), exist_ok=True)
     tmp = os.path.join(HERE, "..", "decoder_out", "verify_oracle")
     os.makedirs(tmp, exist_ok=True)
-    subprocess.run([VXDEC, ROM, "--count", str(nf), "--out", tmp, "--trace", tr], check=False)
+    subprocess.run([VXDEC, ROM, "--stream", hex(VX), "--count", str(nf), "--out", tmp, "--trace", tr], check=False)
     mine = {}
     fr = -1
     for line in open(tr):
@@ -174,23 +200,51 @@ def check_oracle(nf):
     return ok
 
 
+def check_audio(info):
+    import vxaudio
+    st = info[2]
+    print(f"== audio: vxaudio.py vs the {st['audio_blocks']} blocks the cartridge played ==")
+    rom = open(ROM, "rb").read()
+    h = struct.unpack_from("<14I", rom, VX)
+    aud = rom[VX + h[7]:VX + h[8]]
+    dec = vxaudio.VXAudioDecoder(vxaudio.Codebook(aud))
+    p, digest = vxaudio.CODEBOOK_SIZE, hashlib.md5()
+    for i in range(st["audio_blocks"]):
+        n, _, out = dec.decode(aud + b"\0" * 32, p) if p + 20 > len(aud) else dec.decode(aud, p)
+        digest.update(hashlib.md5(out).hexdigest().encode())
+        p += n
+    ok = digest.hexdigest() == st["audio_md5"]
+    print(f"audio blocks 0..{st['audio_blocks'] - 1}: {'match' if ok else 'MISMATCH'}")
+    return ok
+
+
 def main():
+    global ROM, VX
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--rom", default=ROM)
+    ap.add_argument("--stream", type=lambda x: int(x, 0), help="VX++ header offset or index (default: first)")
+    ap.add_argument("--audio", action="store_true")
     ap.add_argument("--manifest", action="store_true")
     ap.add_argument("--frames", action="store_true")
     ap.add_argument("--seek", action="store_true")
     ap.add_argument("--seek-frames", type=int, default=8)
     ap.add_argument("--oracle", type=int, default=0)
     a = ap.parse_args()
-    if not (a.manifest or a.frames or a.seek or a.oracle):
+    ROM = os.path.abspath(a.rom)
+    VX = vxcart.pick_stream(open(ROM, "rb").read(), a.stream)
+    if not (a.manifest or a.frames or a.seek or a.oracle or a.audio):
         a.manifest = a.frames = a.seek = True
     subprocess.run(["make", "-C", HERE, "-s", "vxdec"], check=True)
-    man = load_manifest()
+    info = stream_info()
+    print(f"{info[1]}, stream 0x{VX:x}")
+    man = load_manifest(info)
     ok = True
     if a.manifest:
         ok &= check_manifest(man)
     if a.frames:
-        if os.path.isdir(os.path.join(EMU, "frames")):
+        if info[0] != SHREK_SHA1 or VX != 0x20200:
+            print("== raw dumps: only kept for Shrek; skipped ==")
+        elif os.path.isdir(os.path.join(EMU, "frames")):
             ok &= check_frames()
         else:
             print("== raw dumps: skipped (no emu/frames; run emu/capture.py to create them) ==")
@@ -198,6 +252,8 @@ def main():
         ok &= check_seek(man, a.seek_frames)
     if a.oracle:
         ok &= check_oracle(a.oracle)
+    if a.audio:
+        ok &= check_audio(info)
     print("ALL OK" if ok else "FAILURES")
     sys.exit(0 if ok else 1)
 

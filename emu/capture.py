@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Ground-truth capture for the Shrek GBA Video cartridge (VX++ player).
+"""Ground-truth capture for GBA Video cartridges with the VX++ player.
 
 Runs the ROM headless in the mGBA libretro core (ctypes frontend in retro.py),
-presses A at the title menu ("Play"), then per emulated frame watches the
-player context struct (in VRAM at 0x06013E80) and dumps:
+walks the cart's menu to start a movie (by default A at the title menu = "Play";
+--stream / --menu pick another movie on a multi-movie cart), then per emulated
+frame watches the player context struct (in VRAM at 0x06013E80) and dumps:
 
   frames/yuv/NNNNN.yuv      decoder output slot for video frame N, exact copy
                             (0xF000 bytes: Y 256x160 stride 256, then
                             interleaved U,V 256x80 (UVUV.., 120 pairs used/row))
   frames/vram/NNNNN.bgr555  mode-3 framebuffer after frame N was displayed
-                            (240x160 little-endian BGR555, 76800 bytes)
+                            (240x160 little-endian BGR555, 76800 bytes). vram_md5 in
+                            index.csv covers only the picture: the WxH rectangle the player
+                            centres on the screen (the whole screen for a 240x160 movie)
   frames/png/NNNNN.png      PNG of the above
   frames/index.csv          per-frame metadata
   audio/pcm.s8              signed 8-bit mono PCM, 65536 Hz: decoded audio
@@ -28,6 +31,7 @@ Usage:
   capture.py --frames 300 --out DIR           # first 300 video frames
   capture.py --skip 20000 --frames 50 --out DIR   # frames 20000..20049
   capture.py --checkpoints 1000 --frames 37837 --no-dump   # build states/
+  capture.py --rom combo.gba --stream 0x3dd3600 --hash-only --frames 99999 --out DIR
 """
 import argparse
 import csv
@@ -52,6 +56,18 @@ AUDIO_BLOCK = 512
 AUDIO_RATE = 65536        # TM0 reload 0xFF00, prescaler 1 -> 2^24/256
 MENU_FRAME = 880          # title menu is up and accepting input by here
 PRESS_FRAMES = 5
+SCREEN_W, SCREEN_H = 240, 160
+CART_SHA1 = {"f23390b7a62c605fbce6730addc29d381488e076": "combo"}
+# Menu key presses (emu frame:button) that start each movie. Single-movie carts (Shrek,
+# Shark Tale, Shrek 2 Rev 6): A at the title = Play. Shrek + Shark Tale: the title lists
+# Shrek / Shark Tale; each has a submenu Play / Chapters / Controls / Credits, and Credits
+# plays a separate 240x160 stream.
+MENUS = {
+    ("combo", 0x20200): "880:A,960:A",                                     # Shrek, Play
+    ("combo", 0x3DD3600): "880:A,960:DOWN,980:DOWN,1000:DOWN,1020:A",      # Shrek, Credits
+    ("combo", 0x1EEF800): "880:DOWN,920:A,1000:A",                         # Shark Tale, Play
+    ("combo", 0x3E76A00): "880:DOWN,920:A,1000:DOWN,1020:DOWN,1040:DOWN,1060:A",  # Shark Tale, Credits
+}
 PREROLL = 3               # player_run starts the decode/display counters at 3 (slots 0..2 black)
 ROM_DEFAULT = os.path.join(HERE, "..", "shrek.gba")
 
@@ -60,12 +76,31 @@ def ctx_words(r):
     return struct.unpack("<64I", r.read(CTX, 256))
 
 
-def boot_to_play(r):
-    """Run to the title menu and start pressing A ("Play" is preselected).
-    The caller keeps stepping; the button is released after PRESS_FRAMES."""
-    r.run(MENU_FRAME)
-    r.buttons = {"A"}
-    r.press_until = r.frame_no + PRESS_FRAMES
+def parse_menu(spec):
+    return sorted((int(f), b.upper()) for f, b in (x.split(":") for x in spec.split(",")))
+
+
+def menu_for(rom_path, stream):
+    import hashlib as _h
+    cart = CART_SHA1.get(_h.sha1(open(rom_path, "rb").read()).hexdigest())
+    return MENUS.get((cart, stream), f"{MENU_FRAME}:A")
+
+
+def boot_to_play(r, presses):
+    """Run to the first menu press. The caller keeps stepping and calls press_keys() every
+    frame; each button is held for PRESS_FRAMES."""
+    r.presses = list(presses)
+    r.run(r.presses[0][0])
+    press_keys(r)
+
+
+def press_keys(r):
+    if r.buttons and r.frame_no >= getattr(r, "press_until", 0):
+        r.buttons = set()
+    pr = getattr(r, "presses", [])
+    if pr and r.frame_no >= pr[0][0]:
+        r.buttons = {pr.pop(0)[1]}
+        r.press_until = r.frame_no + PRESS_FRAMES
 
 
 def find_checkpoint(n, sdir=os.path.join(HERE, "states")):
@@ -87,6 +122,9 @@ def ctx_valid(w):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--rom", default=ROM_DEFAULT)
+    ap.add_argument("--stream", type=lambda x: int(x, 0), default=0x20200,
+                    help="VX++ header offset of the movie to play (checked against the player's ctx+0x20)")
+    ap.add_argument("--menu", help="menu key presses, e.g. '880:DOWN,920:A,1000:A' (default: per-cart table)")
     ap.add_argument("--out", default=HERE)
     ap.add_argument("--frames", type=int, default=300, help="number of video frames to dump")
     ap.add_argument("--skip", type=int, default=0, help="first video frame index to dump")
@@ -112,6 +150,13 @@ def main():
         os.makedirs(sdir, exist_ok=True)
 
     r = retro.Retro(args.rom)
+    hdr = struct.unpack_from("<4s3I", r._rom, args.stream)
+    if hdr[0] != b"VX++":
+        sys.exit(f"no VX++ header at 0x{args.stream:x}")
+    pw, ph = hdr[2], hdr[3]
+    px0, py0 = (SCREEN_W - pw) // 2, (SCREEN_H - ph) // 2   # player centres the picture (0x03007ab0)
+    presses = parse_menu(args.menu or menu_for(args.rom, args.stream))
+    border_nonzero = 0
     if args.state is None and args.skip > 0:
         args.state = find_checkpoint(args.skip - 1)
         if args.state:
@@ -121,7 +166,7 @@ def main():
         with open(args.state, "rb") as f:
             r.load_state(f.read())
     else:
-        boot_to_play(r)
+        boot_to_play(r, presses)
     r.audio = bytearray()
 
     first, last = args.skip, args.skip + args.frames  # dump [first, last)
@@ -149,16 +194,17 @@ def main():
 
     while True:
         r.run(1)
-        if r.buttons and r.frame_no >= getattr(r, "press_until", 0):
-            r.buttons = set()
+        press_keys(r)
         w = ctx_words(r)
         if not started:
             if not ctx_valid(w):
-                if r.frame_no > MENU_FRAME + 600:
+                if r.frame_no > presses[-1][0] + 600:
                     sys.exit("movie never started")
                 continue
             started = True
             print(f"movie started at emu frame {r.frame_no}: decoded {w[10]}, displayed {w[11]}")
+            if w[8] & 0x03FFFFFF != args.stream:
+                sys.exit(f"the menu started the stream at 0x{w[8] & 0x03FFFFFF:x}, not 0x{args.stream:x}")
         if not ctx_valid(w):
             print("context struct no longer valid (movie ended / menu?)", file=sys.stderr)
             break
@@ -202,14 +248,18 @@ def main():
                 print(f"WARNING: display jumped {disp_seen}->{disp} at emu frame {r.frame_no} "
                       "(player dropped a frame)", file=sys.stderr)
             if not args.no_dump and first <= vx < last and disp_seen != 0:
-                fb = r.read(0x06000000, 240 * 160 * 2)
+                fb = r.read(0x06000000, SCREEN_W * SCREEN_H * 2)
+                pic = b"".join(fb[((py0 + y) * SCREEN_W + px0) * 2:((py0 + y) * SCREEN_W + px0 + pw) * 2]
+                               for y in range(ph))
+                if len(pic) != len(fb):
+                    border_nonzero = max(border_nonzero, pic.count(0) + len(fb) - len(pic) - fb.count(0))
                 if not args.hash_only:
                     with open(os.path.join(fdir, "vram", f"{vx:05d}.bgr555"), "wb") as f:
                         f.write(fb)
                 if not args.no_png and not args.hash_only:
                     bgr555_to_img(fb).save(os.path.join(fdir, "png", f"{vx:05d}.png"))
                 idx_rows.setdefault(vx, {}).update(frame=vx, emu_displayed=r.frame_no,
-                                                  vram_md5=hashlib.md5(fb).hexdigest())
+                                                  vram_md5=hashlib.md5(pic).hexdigest())
             disp_seen = disp
 
         # ---- audio blocks (only while inside the dumped video span)
@@ -242,6 +292,8 @@ def main():
 
     dt = time.time() - t0
     print(f"done at emu frame {r.frame_no} in {dt:.1f}s; multi-decode emu frames: {multi_warn}")
+    if (pw, ph) != (SCREEN_W, SCREEN_H):
+        print(f"picture {pw}x{ph} at ({px0},{py0}); most nonzero framebuffer bytes outside it: {border_nonzero}")
 
     if args.no_dump:
         return
