@@ -8,49 +8,49 @@
 //!   picture edge read and write outside the picture (row-wrapping motion vectors, edge
 //!   blending). Frame `n` is decoded into buffer `n & 1`.
 //! * [`audio::AudioState`] is the GSM-style synthesis plus the 4x interpolation and
-//!   noise-shaped 8-bit output stage ([`util::OutputStage`], shared with VX audio). Its
+//!   noise-shaped 8-bit output stage ([`gbav_common::output::OutputStage`], shared with VX audio). Its
 //!   state is zero at power-on and never reset, not even on a seek.
 //! * [`Fvmv`] implements the [`gbav_common::Codec`] interface on top of them.
 //!
 //! Manifest bytes: the video manifest hashes the 240x160 u16 LE frame buffer with bit 15
 //! kept ([`Frame::manifest_bytes`]); the audio manifest hashes the 256 int32 LE synthesis
-//! samples ([`Audio::synth_bytes`]) and the 1024 signed 8-bit PCM bytes
-//! ([`AudioDecoder::next_block`]).
+//! samples and the 1024 signed 8-bit PCM bytes ([`AudioDecoder::manifest_part`] 0 and 1).
+//! Decoders share the ROM ([`gbav_common::Rom`]); no stream bytes are copied.
 
 pub mod audio;
 pub mod container;
-pub mod util;
 pub mod video;
 
 use std::sync::Arc;
 
 use audio::{AudioState, BLOCK_BYTES, BLOCK_SAMPLES, OUT_BYTES};
 use container::{Header, Record};
-use gbav_common::{AudioDecoder, Codec, Error, Frame, Result, StreamInfo, VideoDecoder};
+use gbav_common::bytes::ArcSlice;
+use gbav_common::{AudioDecoder, BlockKey, Codec, Error, Frame, Result, Rom, StreamInfo, VideoDecoder};
 use video::{Decoder, FRAME_BYTES};
 
-/// One FVMV stream, copied out of the ROM (header plus record area).
+/// One FVMV stream: its header, record table and seek points, and a view of the ROM bytes
+/// from the header to the end of its record area (shared, not copied).
 #[derive(Debug, Clone)]
 pub struct Stream {
-    data: Arc<[u8]>,
-    /// Offset of the header in the ROM.
+    data: ArcSlice,
     pub rom_offset: usize,
     pub header: Header,
     pub records: Vec<Record>,
-    /// Frames a cold decoder can start at, sorted.
     pub seek_points: Vec<u32>,
 }
 
 impl Stream {
-    /// Parse the stream whose header is at `rom[offset..]`.
-    pub fn parse(rom: &[u8], offset: usize) -> Result<Stream> {
+    /// Parse the stream whose `FVMV` header is at ROM offset `offset`.
+    pub fn parse(rom: &Rom, offset: usize) -> Result<Stream> {
         let s = rom
             .get(offset..)
             .ok_or_else(|| Error::Invalid("offset past the ROM".into()))?;
         let header = Header::parse(s)?;
         let records = container::walk(s, &header)?;
         let seek_points = container::seek_points(&records);
-        let data: Arc<[u8]> = s[..container::HEADER_BYTES + header.data_size as usize].into();
+        let len = container::HEADER_BYTES + header.data_size as usize;
+        let data = ArcSlice::range(rom.clone(), offset, offset + len);
         Ok(Stream {
             data,
             rom_offset: offset,
@@ -60,8 +60,8 @@ impl Stream {
         })
     }
 
-    /// Open stream `id` ("0", "1", ...: the index among the ROM's FVMV streams).
-    pub fn open(rom: &[u8], id: &str) -> Result<Stream> {
+    /// Stream `id` ("0", "1": index among the ROM's FVMV headers in ROM order).
+    pub fn open(rom: &Rom, id: &str) -> Result<Stream> {
         let offs = container::find_streams(rom);
         if offs.is_empty() {
             return Err(Error::Format("no FVMV streams".into()));
@@ -79,12 +79,10 @@ impl Stream {
         self.records.len() as u32
     }
 
-    /// Video payload of frame `i`.
     pub fn video_payload(&self, i: u32) -> &[u8] {
         &self.data[self.records[i as usize].video_range()]
     }
 
-    /// Audio blocks of frame `i` (a multiple of 40 bytes).
     pub fn audio_payload(&self, i: u32) -> &[u8] {
         &self.data[self.records[i as usize].audio_range()]
     }
@@ -100,12 +98,13 @@ impl Stream {
             fps_den,
             frames: self.frames(),
             seek_points: self.seek_points.clone(),
+            chapters: Vec::new(),
             audio_rate_hz: Some(audio::RATE_HZ),
         }
     }
 }
 
-/// A decoded frame: its index and a copy of the 16-bit frame buffer.
+/// A decoded frame: the 240x160 u16 LE frame buffer, bit 15 included (the manifest bytes).
 #[derive(Debug, Clone)]
 pub struct FvmvFrame {
     pub index: u32,
@@ -117,15 +116,18 @@ impl Frame for FvmvFrame {
         &self.buffer
     }
 
-    fn bgr555(&self) -> Vec<u16> {
-        self.buffer
-            .chunks_exact(2)
-            .map(|p| u16::from_le_bytes([p[0], p[1]]) & 0x7fff)
-            .collect()
+    fn size(&self) -> (u32, u32) {
+        (240, 160)
+    }
+
+    fn bgr555_into(&self, out: &mut [u16]) {
+        for (o, p) in out.iter_mut().zip(self.buffer.chunks_exact(2)) {
+            *o = u16::from_le_bytes([p[0], p[1]]) & 0x7fff;
+        }
     }
 }
 
-/// Video decoder over one stream, starting from power-on state at frame 0.
+/// Video decoder for one stream.
 pub struct Video {
     stream: Arc<Stream>,
     dec: Decoder,
@@ -145,18 +147,16 @@ impl Video {
         &self.stream
     }
 
-    /// The underlying decoder (EWRAM model, statistics).
     pub fn decoder(&self) -> &Decoder {
         &self.dec
     }
 
-    /// Index of the next frame to decode.
+    /// Frame number the next decode produces.
     pub fn position(&self) -> u32 {
         self.next
     }
 
-    /// Decode the next frame without copying it; read it with `decoder().last_frame()`.
-    /// Returns the frame index, or `None` at the end.
+    /// Decode the next frame in place (see [`Decoder::last_frame`]); `Ok(Some(n))` = frame n.
     pub fn decode_next(&mut self) -> Result<Option<u32>> {
         let i = self.next;
         if i >= self.stream.frames() {
@@ -175,8 +175,8 @@ impl Video {
 impl VideoDecoder for Video {
     type Frame = FvmvFrame;
 
-    /// Cold start at a seek point: zeroed EWRAM, buffer parity of the frame index. Seek
-    /// points are true keyframes, so the output equals a decode from frame 0.
+    /// Cold start: zeroed EWRAM model, frame counter at the seek point (keeps the player's
+    /// buffer parity). Every seek point is a true keyframe, so the result is exact.
     fn seek(&mut self, frame: u32) -> Result<()> {
         if self.stream.seek_points.binary_search(&frame).is_err() {
             return Err(Error::Invalid(format!("frame {frame} is not a seek point")));
@@ -197,8 +197,8 @@ impl VideoDecoder for Video {
     }
 }
 
-/// Audio decoder over one stream. Blocks are numbered (frame, block within the frame), as
-/// in the audio manifest.
+/// Audio decoder for one stream. A block is one 40-byte GSM block: 256 synthesis samples
+/// at 16384 Hz and 1024 PCM bytes at 65536 Hz, keyed by (video frame, block in that frame).
 pub struct Audio {
     stream: Arc<Stream>,
     state: AudioState,
@@ -207,11 +207,12 @@ pub struct Audio {
     last: Option<(u32, u32)>,
     synth: [i32; BLOCK_SAMPLES],
     pcm: [i8; OUT_BYTES],
-    pcm16: [i16; BLOCK_SAMPLES],
+    synth_bytes: [u8; 4 * BLOCK_SAMPLES],
+    pcm_bytes: [u8; OUT_BYTES],
 }
 
 impl Audio {
-    /// Start at frame 0 with the given decoder state (power-on: `AudioState::new()`).
+    /// Audio from `state` (to carry the player's state from one episode into the next).
     pub fn with_state(stream: Arc<Stream>, state: AudioState) -> Audio {
         Audio {
             stream,
@@ -221,17 +222,18 @@ impl Audio {
             last: None,
             synth: [0; BLOCK_SAMPLES],
             pcm: [0; OUT_BYTES],
-            pcm16: [0; BLOCK_SAMPLES],
+            synth_bytes: [0; 4 * BLOCK_SAMPLES],
+            pcm_bytes: [0; OUT_BYTES],
         }
     }
 
+    /// Audio from power-on state.
     pub fn new(stream: Arc<Stream>) -> Audio {
         Self::with_state(stream, AudioState::new())
     }
 
-    /// Move to the first block of `frame` without touching the decoder state, as the
-    /// player does on a seek.
-    pub fn seek(&mut self, frame: u32) -> Result<()> {
+    /// Reposition at video frame `frame` without touching the state, as the player does.
+    pub fn reposition(&mut self, frame: u32) -> Result<()> {
         if frame > self.stream.frames() {
             return Err(Error::Invalid(format!("frame {frame} past the end")));
         }
@@ -248,7 +250,7 @@ impl Audio {
         &mut self.state
     }
 
-    /// Decode the next block without allocating; returns its (frame, block) position.
+    /// Decode the next block; its (frame, block in frame), or `None` at the end.
     pub fn decode_next(&mut self) -> Option<(u32, u32)> {
         loop {
             if self.frame >= self.stream.frames() {
@@ -261,8 +263,11 @@ impl Audio {
                     .try_into()
                     .unwrap();
                 self.state.decode_block(blk, &mut self.synth, &mut self.pcm);
-                for (d, &s) in self.pcm16.iter_mut().zip(self.synth.iter()) {
-                    *d = s.clamp(-32768, 32767) as i16;
+                for (d, s) in self.synth_bytes.chunks_exact_mut(4).zip(self.synth.iter()) {
+                    d.copy_from_slice(&s.to_le_bytes());
+                }
+                for (d, &s) in self.pcm_bytes.iter_mut().zip(self.pcm.iter()) {
+                    *d = s as u8;
                 }
                 let pos = (self.frame, self.block);
                 self.block += 1;
@@ -274,46 +279,72 @@ impl Audio {
         }
     }
 
-    /// (frame, block) of the block decoded last.
     pub fn last_position(&self) -> Option<(u32, u32)> {
         self.last
     }
 
-    /// The 256 int32 synthesis samples of the last block.
+    /// The exact int32 synthesis output of the last block.
     pub fn synth(&self) -> &[i32; BLOCK_SAMPLES] {
         &self.synth
     }
 
-    /// The synthesis samples as int32 LE bytes (the audio manifest's `md5_synth`).
-    pub fn synth_bytes(&self) -> Vec<u8> {
-        self.synth.iter().flat_map(|v| v.to_le_bytes()).collect()
+    /// The synthesis output as LE bytes (first audio manifest hash).
+    pub fn synth_bytes(&self) -> &[u8] {
+        &self.synth_bytes
     }
 
-    /// The 1024 signed 8-bit samples at 65536 Hz of the last block (`md5_pcm`).
-    pub fn pcm(&self) -> &[i8; OUT_BYTES] {
+    /// The signed 8-bit PCM of the last block.
+    pub fn pcm_s8(&self) -> &[i8; OUT_BYTES] {
         &self.pcm
     }
 
-    /// The PCM as bytes.
-    pub fn pcm_bytes(&self) -> Vec<u8> {
-        self.pcm.iter().map(|&b| b as u8).collect()
+    /// The PCM as bytes (second audio manifest hash; what the cart plays).
+    pub fn pcm_bytes(&self) -> &[u8] {
+        &self.pcm_bytes
     }
 }
 
 impl AudioDecoder for Audio {
-    /// The 1024 signed 8-bit PCM bytes (65536 Hz) the player writes to its DMA ring.
-    fn next_block(&mut self) -> Result<Option<Vec<u8>>> {
-        Ok(self.decode_next().map(|_| self.pcm_bytes()))
+    fn next_block(&mut self) -> Result<bool> {
+        Ok(self.decode_next().is_some())
     }
 
-    /// The 16384 Hz synthesis output saturated to 16 bits. (The cartridge never saturates:
-    /// the exact values are in [`Audio::synth`].)
-    fn last_pcm(&self) -> &[i16] {
-        &self.pcm16
+    fn key(&self) -> BlockKey {
+        let (f, b) = self.last.unwrap_or((0, 0));
+        BlockKey {
+            frame: Some(f),
+            index: b as u64,
+        }
+    }
+
+    fn parts(&self) -> usize {
+        2
+    }
+
+    fn manifest_part(&self, i: usize) -> &[u8] {
+        match i {
+            0 => &self.synth_bytes,
+            _ => &self.pcm_bytes,
+        }
+    }
+
+    fn pcm(&self) -> &[i32] {
+        &self.synth
+    }
+
+    /// Cold start (power-on state) at seek point `frame`. The player itself keeps its audio
+    /// state across seeks; use [`Audio::reposition`] for that behaviour.
+    fn seek(&mut self, frame: u32) -> Result<()> {
+        if self.stream.seek_points.binary_search(&frame).is_err() {
+            return Err(Error::Invalid(format!("frame {frame} is not a seek point")));
+        }
+        self.state = AudioState::new();
+        self.last = None;
+        self.reposition(frame)
     }
 }
 
-/// The FVMV family.
+/// The FVMV codec.
 pub struct Fvmv;
 
 impl Codec for Fvmv {
@@ -328,15 +359,27 @@ impl Codec for Fvmv {
         }
         offs.iter()
             .enumerate()
-            .map(|(i, &o)| Ok(Stream::parse(rom, o)?.info(&i.to_string())))
+            .map(|(i, &o)| {
+                let s = rom.get(o..).ok_or_else(|| Error::Invalid("offset past the ROM".into()))?;
+                let header = Header::parse(s)?;
+                let records = container::walk(s, &header)?;
+                let st = Stream {
+                    data: ArcSlice::new(Arc::from(&[][..])),
+                    rom_offset: o,
+                    seek_points: container::seek_points(&records),
+                    header,
+                    records,
+                };
+                Ok(st.info(&i.to_string()))
+            })
             .collect()
     }
 
-    fn video(rom: &[u8], stream: &str) -> Result<Video> {
+    fn video(rom: &Rom, stream: &str) -> Result<Video> {
         Ok(Video::new(Arc::new(Stream::open(rom, stream)?)))
     }
 
-    fn audio(rom: &[u8], stream: &str) -> Result<Audio> {
+    fn audio(rom: &Rom, stream: &str) -> Result<Audio> {
         Ok(Audio::new(Arc::new(Stream::open(rom, stream)?)))
     }
 }

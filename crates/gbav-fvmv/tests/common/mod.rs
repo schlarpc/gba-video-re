@@ -1,71 +1,21 @@
-//! Shared test helpers: locating the carts and manifests, reading gzip manifests, a PRNG.
+//! Shared test helpers: the FVMV carts and their manifests (through gbav-testkit), a PRNG.
 #![allow(dead_code)]
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use gbav_common::Rom;
 
-/// The four FVMV carts by game code.
-pub const CODES: [&str; 4] = ["MPAE", "MPBE", "MPCE", "MPDE"];
+#[allow(unused_imports)]
+pub use gbav_testkit::{cref_dir, roms_dir, stream_manifests};
 
-/// `GBAV_ROMS`, or `None` (tests skip).
-pub fn roms_dir() -> Option<PathBuf> {
-    std::env::var_os("GBAV_ROMS").map(PathBuf::from)
-}
-
-/// Directory of the `<code>_<stream>.{frame,audio}_md5.csv.gz` manifests:
-/// `GBAV_FVMV_MANIFESTS`, else `<crate>/manifests` if present.
-pub fn manifests_dir() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("GBAV_FVMV_MANIFESTS") {
-        return Some(PathBuf::from(p));
-    }
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("manifests");
-    p.is_dir().then_some(p)
-}
-
-/// FVMV carts in the ROM directory, as (game code, path), sorted by code. The game code at
-/// 0xac identifies them (the header's title field is the same "GBA Video" on all carts).
-pub fn fvmv_carts(dir: &Path) -> Vec<(String, PathBuf)> {
-    use std::io::Read;
-    let mut out = Vec::new();
-    for e in std::fs::read_dir(dir).expect("read GBAV_ROMS") {
-        let p = e.unwrap().path();
-        if p.extension()
-            .and_then(|x| x.to_str())
-            .map(|x| x.eq_ignore_ascii_case("gba"))
-            != Some(true)
-        {
-            continue;
-        }
-        let mut hdr = [0u8; 0xb0];
-        if std::fs::File::open(&p)
-            .and_then(|mut f| f.read_exact(&mut hdr))
-            .is_err()
-        {
-            continue;
-        }
-        let code = String::from_utf8_lossy(&hdr[0xac..0xb0]).to_string();
-        if CODES.contains(&code.as_str()) {
-            out.push((code, p));
-        }
-    }
-    out.sort();
+/// The FVMV carts found in `GBAV_ROMS`, as (short id, ROM), sorted by short id
+/// (`pokemon1` .. `pokemon4`, see verify/carts.csv).
+pub fn fvmv_carts() -> Vec<(String, Rom)> {
+    let mut out: Vec<(String, Rom)> = gbav_testkit::carts("fvmv")
+        .into_iter()
+        .filter(|c| gbav_testkit::only(&c.short_id))
+        .filter_map(|c| Some((c.short_id.clone(), gbav_testkit::load_rom(&c.short_id)?)))
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
     out
-}
-
-/// Lines of a gzip CSV manifest (header line dropped), split on commas.
-pub fn read_manifest(path: &Path) -> Vec<Vec<String>> {
-    let out = Command::new("gzip")
-        .arg("-dc")
-        .arg(path)
-        .output()
-        .expect("run gzip -dc");
-    assert!(out.status.success(), "gzip -dc {}", path.display());
-    String::from_utf8(out.stdout)
-        .unwrap()
-        .lines()
-        .skip(1)
-        .map(|l| l.split(',').map(str::to_string).collect())
-        .collect()
 }
 
 /// splitmix64.

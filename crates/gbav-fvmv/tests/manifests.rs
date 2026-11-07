@@ -1,20 +1,23 @@
-//! Bit-exact check against the hash manifests (mGBA whole-episode captures of the carts).
+//! Bit-exact check against the hash manifests in `verify/fvmv/` (mGBA whole-episode captures).
 //!
 //! For every stream of every FVMV cart found in `GBAV_ROMS`:
-//! 1. decode all frames and all audio blocks from power-on state and compare every frame
-//!    md5 (16-bit buffer, and bit 15 cleared) and every audio block md5 (int32 synthesis,
-//!    s8 PCM) with `<code>_<stream>.{frame,audio}_md5.csv.gz`;
-//! 2. cold-start a fresh decoder at every seek point and decode up to the next one,
+//! 1. decode all frames from power-on state and compare every frame md5 (16-bit buffer, and
+//!    bit 15 cleared) with `<short id>_<stream>.frame_md5.csv.gz`;
+//! 2. decode all audio blocks from power-on state and compare them with the per-block audio
+//!    manifest (int32 synthesis and s8 PCM md5, keyed by frame and block) when it is present,
+//!    else with the ~30 s segment manifest `<stem>.audio_seg_md5.csv.gz`;
+//! 3. cold-start a fresh decoder at every seek point and decode up to the next one,
 //!    comparing every frame again.
 //!
-//! Needs `GBAV_ROMS` and the manifests (`GBAV_FVMV_MANIFESTS`); skips otherwise. Run in
-//! release mode: `cargo test --release -p gbav-fvmv --test manifests -- --nocapture`.
+//! Needs `GBAV_ROMS`; skips otherwise. Run in release mode:
+//! `cargo test --release -p gbav-fvmv --test manifests -- --nocapture`.
 
 mod common;
 
+use gbav_common::manifest::{check_audio, Check, Manifest};
 use gbav_common::md5::hex;
-use gbav_common::{Codec, Frame, VideoDecoder};
-use gbav_fvmv::{Audio, Fvmv, Stream, Video};
+use gbav_common::{Codec, Frame, Rom, VideoDecoder};
+use gbav_fvmv::{Fvmv, Stream, Video};
 use std::sync::Arc;
 
 #[derive(Default, Debug)]
@@ -22,9 +25,7 @@ struct Res {
     frames: usize,
     frames_ok: usize,
     frames_15_ok: usize,
-    blocks: usize,
-    synth_ok: usize,
-    pcm_ok: usize,
+    audio: Option<Check>,
     seek_points: usize,
     seek_frames: usize,
     seek_ok: usize,
@@ -39,29 +40,25 @@ fn md5_15(buf: &[u8]) -> String {
     hex(&t)
 }
 
-fn check(code: &str, rom: &[u8], s: usize, mdir: &std::path::Path) -> Res {
-    let name = format!("{code}_{s}");
-    let fm = common::read_manifest(&mdir.join(format!("{name}.frame_md5.csv.gz")));
-    let am = common::read_manifest(&mdir.join(format!("{name}.audio_md5.csv.gz")));
-    let stream = Arc::new(Stream::open(rom, &s.to_string()).expect("open stream"));
+fn check(short: &str, rom: &Rom, s: usize) -> Res {
+    let sid = s.to_string();
+    let name = format!("{short}_{s}");
+    let paths = common::stream_manifests("fvmv", short, &sid).expect("verify/ directory");
+    let fm = Manifest::load(&paths.frames).unwrap().unwrap_or_else(|| panic!("{name}: no frame manifest")).rows;
+    let stream = Arc::new(Stream::open(rom, &sid).expect("open stream"));
     let mut r = Res {
         frames: fm.len(),
-        blocks: am.len(),
         ..Res::default()
     };
 
     // 1. whole stream through the trait interface
-    let mut v = Fvmv::video(rom, &s.to_string()).unwrap();
+    let mut v = Fvmv::video(rom, &sid).unwrap();
     let mut i = 0;
     while let Some(f) = v.next_frame().expect("decode") {
         assert_eq!(f.index as usize, i);
         match fm.get(i) {
             Some(row) => {
-                assert_eq!(
-                    row[0].parse::<usize>().unwrap(),
-                    i,
-                    "{name}: manifest order"
-                );
+                assert_eq!(row[0].parse::<usize>().unwrap(), i, "{name}: manifest order");
                 let b = f.manifest_bytes();
                 r.frames_ok += (hex(b) == row[1]) as usize;
                 r.frames_15_ok += (md5_15(b) == row[2]) as usize;
@@ -70,22 +67,11 @@ fn check(code: &str, rom: &[u8], s: usize, mdir: &std::path::Path) -> Res {
         }
         i += 1;
     }
-    let mut a = Audio::new(stream.clone());
-    let mut k = 0;
-    while let Some((fr, bl)) = a.decode_next() {
-        match am.get(k) {
-            Some(row)
-                if row[0].parse::<u32>().unwrap() == fr && row[1].parse::<u32>().unwrap() == bl =>
-            {
-                r.synth_ok += (hex(&a.synth_bytes()) == row[2]) as usize;
-                r.pcm_ok += (hex(&a.pcm_bytes()) == row[3]) as usize;
-            }
-            _ => r.extra += 1,
-        }
-        k += 1;
-    }
 
-    // 2. cold start at every seek point, through to the next one
+    // 2. audio: per-block manifest if present, else segments
+    r.audio = check_audio(|| Fvmv::audio(rom, &sid), &paths, &[]).expect("audio check");
+
+    // 3. cold start at every seek point, through to the next one
     let sp = &stream.seek_points;
     r.seek_points = sp.len();
     for (j, &start) in sp.iter().enumerate() {
@@ -99,16 +85,12 @@ fn check(code: &str, rom: &[u8], s: usize, mdir: &std::path::Path) -> Res {
         }
     }
     println!(
-        "{name}: video {}/{} (bit15-cleared {}/{}), audio synth {}/{} pcm {}/{}, \
-         seek points {} cold-start frames {}/{}, extra {}",
+        "{name}: video {}/{} (bit15-cleared {}/{}), audio {}, seek points {} cold-start frames {}/{}, extra {}",
         r.frames_ok,
         r.frames,
         r.frames_15_ok,
         r.frames,
-        r.synth_ok,
-        r.blocks,
-        r.pcm_ok,
-        r.blocks,
+        r.audio.as_ref().map_or("no manifest".to_string(), |c| c.to_string()),
         r.seek_points,
         r.seek_ok,
         r.seek_frames,
@@ -119,45 +101,48 @@ fn check(code: &str, rom: &[u8], s: usize, mdir: &std::path::Path) -> Res {
 
 #[test]
 fn all_streams_match_manifests() {
-    let (Some(rdir), Some(mdir)) = (common::roms_dir(), common::manifests_dir()) else {
-        eprintln!("skipping: set GBAV_ROMS and GBAV_FVMV_MANIFESTS");
+    if common::roms_dir().is_none() || common::stream_manifests("fvmv", "pokemon1", "0").is_none() {
+        eprintln!("skipping: set GBAV_ROMS (and keep verify/ in the source tree or set GBAV_VERIFY)");
         return;
-    };
-    let carts = common::fvmv_carts(&rdir);
-    assert!(!carts.is_empty(), "no FVMV carts in {}", rdir.display());
+    }
+    let carts = common::fvmv_carts();
+    if carts.is_empty() {
+        eprintln!("skipping: no FVMV carts in GBAV_ROMS");
+        return;
+    }
     let t0 = std::time::Instant::now();
     let handles: Vec<_> = carts
         .into_iter()
-        .flat_map(|(code, path)| {
-            let rom = Arc::new(std::fs::read(&path).unwrap());
-            let mdir = mdir.clone();
+        .flat_map(|(short, rom)| {
             let n = Fvmv::streams(&rom).unwrap().len();
-            assert_eq!(n, 2, "{code}: expected two streams");
+            assert_eq!(n, 2, "{short}: expected two streams");
             (0..n).map(move |s| {
-                let (code, rom, mdir) = (code.clone(), rom.clone(), mdir.clone());
-                std::thread::spawn(move || check(&code, &rom, s, &mdir))
+                let (short, rom) = (short.clone(), rom.clone());
+                std::thread::spawn(move || check(&short, &rom, s))
             })
         })
         .collect();
-    let mut tot = Res::default();
+    let (mut frames, mut units, mut seek_points, mut audio_kind) = (0, 0, 0, "");
     for h in handles {
         let r = h.join().unwrap();
         assert_eq!(r.frames_ok, r.frames);
         assert_eq!(r.frames_15_ok, r.frames);
-        assert_eq!(r.synth_ok, r.blocks);
-        assert_eq!(r.pcm_ok, r.blocks);
         assert_eq!(r.seek_ok, r.frames);
         assert_eq!(r.seek_frames, r.frames);
         assert_eq!(r.extra, 0);
-        tot.frames += r.frames;
-        tot.blocks += r.blocks;
-        tot.seek_points += r.seek_points;
+        match &r.audio {
+            Some(c) => {
+                assert!(c.passed(), "audio: {c}");
+                units += c.total;
+                audio_kind = c.unit;
+            }
+            None => eprintln!("audio skipped: no per-block or segment manifest"),
+        }
+        frames += r.frames;
+        seek_points += r.seek_points;
     }
     println!(
-        "ALL OK: {} frames, {} audio blocks, {} seek points (cold start), {:.1} s",
-        tot.frames,
-        tot.blocks,
-        tot.seek_points,
+        "ALL OK: {frames} frames, {units} audio {audio_kind}, {seek_points} seek points (cold start), {:.1} s",
         t0.elapsed().as_secs_f64()
     );
 }

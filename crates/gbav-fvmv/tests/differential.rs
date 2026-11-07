@@ -1,6 +1,6 @@
 //! Differential fuzz against the reference C decoder.
 //!
-//! The C sources (`fvmvdec.c`, `fvmvaudio.c` and headers, from the FVMV agent lane) are
+//! The C sources (`reference/fvmv/fvmvdec.c`, `fvmvaudio.c` and headers) are
 //! compiled with `tests/cref/harness.c` into a helper process that the test drives over a
 //! pipe. The case generators are a port of the lane's `fuzz.py`:
 //!
@@ -14,15 +14,15 @@
 //!   carried across blocks; the 256 int32 samples, 1024 PCM bytes and all state must match.
 //! * output stage alone on arbitrary int32 input (full range, so every wraparound path).
 //!
-//! Needs `GBAV_FVMV_CREF` (directory of the C sources) and a `cc`; real frames need
-//! `GBAV_ROMS`. Case counts: `GBAV_FVMV_FUZZ_VIDEO` (default 3000), `GBAV_FVMV_FUZZ_AUDIO`
+//! Needs `GBAV_CDIFF=1` (the C reference in the repository's `reference/fvmv/`, or
+//! `GBAV_CREF=<dir>` holding `fvmv/`) and a `cc`; real frames need `GBAV_ROMS`. Case counts: `GBAV_FVMV_FUZZ_VIDEO` (default 3000), `GBAV_FVMV_FUZZ_AUDIO`
 //! (default 50000), `GBAV_FVMV_FUZZ_SEED`.
 
 mod common;
 
 use common::Rng;
 use gbav_fvmv::audio::{AudioState, BLOCK_BYTES};
-use gbav_fvmv::util::OutputStage;
+use gbav_common::output::OutputStage;
 use gbav_fvmv::video::{Decoder, Stats, EWRAM_BASE, EWRAM_SIZE};
 use gbav_fvmv::Stream;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -148,12 +148,8 @@ fn flat_stats(s: &Stats) -> Vec<u64> {
 
 /// (video payload, audio blocks) of the real frames of every FVMV stream in GBAV_ROMS.
 fn real_frames() -> Vec<(Vec<u8>, Vec<u8>)> {
-    let Some(dir) = common::roms_dir() else {
-        return Vec::new();
-    };
     let mut out = Vec::new();
-    for (_, path) in common::fvmv_carts(&dir) {
-        let rom = std::fs::read(path).unwrap();
+    for (_, rom) in common::fvmv_carts() {
         for s in ["0", "1"] {
             let st = Stream::open(&rom, s).unwrap();
             for i in 0..st.frames() {
@@ -188,12 +184,10 @@ fn mutate(v: &[u8], rng: &mut Rng) -> Vec<u8> {
 }
 
 fn cref() -> Option<CRef> {
-    match std::env::var_os("GBAV_FVMV_CREF") {
-        Some(p) => Some(CRef::build(Path::new(&p))),
+    match common::cref_dir() {
+        Some(p) => Some(CRef::build(&p.join("fvmv"))),
         None => {
-            eprintln!(
-                "skipping: set GBAV_FVMV_CREF to the directory holding fvmvdec.c / fvmvaudio.c"
-            );
+            eprintln!("skipping: set GBAV_CDIFF=1 to compare with the C reference in reference/fvmv/");
             None
         }
     }

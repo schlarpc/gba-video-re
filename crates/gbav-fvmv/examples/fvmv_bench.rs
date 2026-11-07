@@ -16,7 +16,7 @@ fn main() {
     let md5 = args.iter().any(|a| a == "--md5");
     let (mut tv, mut ta) = (0.0, 0.0);
     for path in args.iter().filter(|a| !a.starts_with("--")) {
-        let rom = std::fs::read(path).expect("read ROM");
+        let rom: gbav_common::Rom = std::fs::read(path).expect("read ROM").into();
         for s in ["0", "1"] {
             let Ok(st) = Stream::open(&rom, s) else {
                 continue;
@@ -39,10 +39,10 @@ fn main() {
             let mut n = 0usize;
             while a.decode_next().is_some() {
                 if md5 {
-                    black_box(digest(&a.synth_bytes()));
-                    black_box(digest(&a.pcm_bytes()));
+                    black_box(digest(a.synth_bytes()));
+                    black_box(digest(a.pcm_bytes()));
                 }
-                black_box(a.pcm());
+                black_box(a.pcm_s8());
                 n += 1;
             }
             let da = t0.elapsed().as_secs_f64();

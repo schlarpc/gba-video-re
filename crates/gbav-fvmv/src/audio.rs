@@ -1,11 +1,11 @@
 //! FVMV audio: GSM 06.10-style RPE-LPC without long-term prediction (player IWRAM
-//! 0x03001b88), followed by the Actimagine output stage ([`crate::util::OutputStage`],
+//! 0x03001b88), followed by the Actimagine output stage ([`gbav_common::output::OutputStage`],
 //! 0x03001d18). See `docs/format-fvmv.md` section 5.
 //!
 //! The dequantisation tables are computed from the GSM 06.10 formulas; they equal the
 //! cartridge's IWRAM tables entry for entry.
 
-use crate::util::OutputStage;
+use gbav_common::output::OutputStage;
 use std::sync::OnceLock;
 
 /// Bytes per coded block.
