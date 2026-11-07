@@ -591,13 +591,22 @@ void vx_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int height)
     put32(iw + 0x38c, mov_sl_imm((uint32_t)height));
     put32(iw + 0x394, mov_sl_imm((uint32_t)width));
     const uint8_t *T = iw + 0x1f0;
+    /* The blitter builds each 32-bit store (2 pixels) with adds, not ORs:
+     * R0 + G0<<5 + B0<<10 + R1<<16 + G1<<21 + B1<<26. T entries past the clamp range are
+     * code bytes > 31, so a field can carry into the next one, and the even pixel's B can
+     * carry into the odd pixel's R. */
     for (int y = 0; y < height; y++)
-        for (int x = 0; x < width; x++) {
-            int Y = slot[y * 256 + x] - 4 * ((x + y) & 1);
-            int u = slot[0xA000 + (y >> 1) * 256 + (x & ~1)] - 128;
-            int v = slot[0xA000 + (y >> 1) * 256 + (x & ~1) + 1] - 128;
-            int R = T[Y + 2 * v], B = T[Y + 2 * u], G = T[Y - (v + (u >> 1))];
-            out[y * width + x] = (uint16_t)(R | (G << 5) | (B << 10));
+        for (int x = 0; x < width; x += 2) {
+            int u = slot[0xA000 + (y >> 1) * 256 + x] - 128;
+            int v = slot[0xA000 + (y >> 1) * 256 + x + 1] - 128;
+            uint32_t word = 0;
+            for (int k = 0; k < 2; k++) {
+                int Y = slot[y * 256 + x + k] - 4 * ((x + k + y) & 1);
+                uint32_t R = T[Y + 2 * v], B = T[Y + 2 * u], G = T[Y - (v + (u >> 1))];
+                word += (R + (G << 5) + (B << 10)) << (16 * k);
+            }
+            out[y * width + x] = (uint16_t)word;
+            out[y * width + x + 1] = (uint16_t)(word >> 16);
         }
 }
 

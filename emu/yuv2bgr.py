@@ -40,7 +40,14 @@ def yuv_to_bgr555(slot, iwram=None, width=240, height=160):
     v = np.repeat(np.repeat(v, 2, 0), 2, 1)
     yy, xx = np.mgrid[0:height, 0:width]
     Yd = Y - 4 * ((xx + yy) & 1)            # checkerboard ordered dither
-    R = T[base + 2 * v + Yd]
-    B = T[base + 2 * u + Yd]
-    G = T[base - (v + (u >> 1)) + Yd]
-    return (R.astype(np.uint16) | (G.astype(np.uint16) << 5) | (B.astype(np.uint16) << 10))
+    R = T[base + 2 * v + Yd].astype(np.uint32)
+    B = T[base + 2 * u + Yd].astype(np.uint32)
+    G = T[base - (v + (u >> 1)) + Yd].astype(np.uint32)
+    # The blitter adds the fields (T can exceed 31 past the clamp range) into one 32-bit
+    # store per pixel pair, so carries cross fields and run from the even pixel into the odd one.
+    px = R + (G << 5) + (B << 10)
+    word = (px[:, 0::2] + (px[:, 1::2] << 16)) & 0xFFFFFFFF
+    out = np.empty((height, width), np.uint16)
+    out[:, 0::2] = word & 0xFFFF
+    out[:, 1::2] = word >> 16
+    return out
