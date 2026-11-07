@@ -112,7 +112,7 @@ def verify(only=None, audio=False):
             bad = [int(r['frame']) for r in rows if not (int(r['frame']) >= 0 and d.get(int(r['frame'])) == r['fb_md5'])]
             res[name] = dict(frames=s.frames, manifest_rows=len(rows), frames_ok=ok, covered=covered,
                              first_bad=bad[:5], decoder_rc=rc)
-            if audio:
+            if audio and os.path.exists(f'{MAN}/{name}.audio_md5.csv.gz'):  # per-block audio manifest not in verify/ (optional; gbav verify checks the audio segment manifests)
                 am = f'{MAN}/{name}.audio_md5.csv.gz'
                 arows = list(csv.DictReader(gzip.open(am, 'rt')))
                 aok, afirst, total = audio_check(rom, c, arows)

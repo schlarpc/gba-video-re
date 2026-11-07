@@ -63,7 +63,8 @@ def main():
         for s in (0, 1):
             name = f'{code}_{s}'
             fm = load(os.path.join(HERE, '..', '..', 'verify', 'fvmv', name + '.frame_md5.csv.gz'), 1)
-            am = load(os.path.join(HERE, '..', '..', 'verify', 'fvmv', name + '.audio_md5.csv.gz'), 2)
+            ap = os.path.join(HERE, '..', '..', 'verify', 'fvmv', name + '.audio_md5.csv.gz')
+            am = load(ap, 2) if os.path.exists(ap) else None  # per-block audio manifest not in verify/ (optional; gbav verify checks the audio segment manifests)
             out = subprocess.run([exe, path, '--stream', str(s), '--md5', '--audio-md5'],
                                  capture_output=True, text=True, check=True).stdout
             fv, av = {}, {}
@@ -74,6 +75,8 @@ def main():
                 else:
                     fv[(int(p[0]),)] = (p[1], p[2])
             fok = sum(fv.get(k) == v for k, v in fm.items())
+            if am is None:
+                am, av = {}, {}
             aok = sum(av.get(k) == v for k, v in am.items())
             bad = (len(fm) - fok) + (len(am) - aok) + (len(fv) != len(fm)) + (len(av) != len(am))
             bad_total += bad

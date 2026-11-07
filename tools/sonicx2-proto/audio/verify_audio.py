@@ -14,7 +14,10 @@ def main():
     res = {}; bad = 0
     for s in streams:
         pcm = subprocess.run([exe, rom, '--stream', s, '--out', '/dev/stdout'], capture_output=True, check=True).stdout
-        rows = gzip.open(os.path.join(MAN, f'sx2p_{s}.audio_md5.csv.gz'), 'rt').read().split('\n')[1:]
+        mp = os.path.join(MAN, f'sx2p_{s}.audio_md5.csv.gz')
+        if not os.path.exists(mp):
+            print(f'{s}: per-block audio manifest not in verify/ (optional; gbav verify checks the audio segment manifests)'); continue
+        rows = gzip.open(mp, 'rt').read().split('\n')[1:]
         ok = tot = 0
         for r in rows:
             if not r: continue

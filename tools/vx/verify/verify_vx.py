@@ -69,7 +69,10 @@ def check_video(rom, cart, off):
 
 def check_audio(romb, off):
     import vxaudio
-    man = [r["md5"] for r in csv.DictReader(gzip.open(os.path.join(MAN, stem(*off) + ".audio_md5.csv.gz"), "rt"))]
+    p = os.path.join(MAN, stem(*off) + ".audio_md5.csv.gz")
+    if not os.path.exists(p):  # per-block audio manifest not in verify/ (optional; gbav verify checks the audio segment manifests)
+        return dict(blocks=0, blocks_ok=0, first_mismatch=None, ok_after_first_mismatch=None, skipped=True)
+    man = [r["md5"] for r in csv.DictReader(gzip.open(p, "rt"))]
     h = struct.unpack_from("<4s13I", romb, off[1])
     aud = romb[off[1] + h[7]:off[1] + h[8]]
     dec = vxaudio.VXAudioDecoder(vxaudio.Codebook(aud))
@@ -111,7 +114,7 @@ def main():
         if not a.no_audio:
             au = check_audio(romb, (cart, off))
             rec["audio"] = au
-            line += f" | audio {au['blocks_ok']}/{au['blocks']}"
+            line += " | audio skipped (no per-block manifest)" if au.get("skipped") else f" | audio {au['blocks_ok']}/{au['blocks']}"
             if au["first_mismatch"] is not None:
                 line += f" first mismatch at block {au['first_mismatch']} ({au['ok_after_first_mismatch']} match after it)"
                 # only acceptable where the emulated cart underran its audio window (perf-vx.md)
