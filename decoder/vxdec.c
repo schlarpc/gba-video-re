@@ -657,40 +657,17 @@ static uint32_t mov_sl_imm(uint32_t v)
     return 0xe3a0a000u | v | (rot & 0xf) << 8;
 }
 
-void vx_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int height)
+/* The blitter builds each horizontal pixel pair in one register by ADDING the six table
+ * values, shifted (R | G<<5 | B<<10, then the odd pixel's fields << 16), and stores it as
+ * one word. Table bytes past k = 384 are the blitter's own code and can exceed 31, so a
+ * field can carry into the next one and into the odd pixel; modelled here exactly. */
+static void blit(const uint8_t *iwram_lo, const uint8_t *slot, uint16_t *out, int width, int height)
 {
     uint8_t iw[0x400];
-    memcpy(iw, vx_iwram_lo, sizeof iw);
+    memcpy(iw, iwram_lo, sizeof iw);
     put32(iw + 0x38c, mov_sl_imm((uint32_t)height));
     put32(iw + 0x394, mov_sl_imm((uint32_t)width));
     const uint8_t *T = iw + 0x1f0;
-    /* The blitter builds each 32-bit store (2 pixels) with adds, not ORs:
-     * R0 + G0<<5 + B0<<10 + R1<<16 + G1<<21 + B1<<26. T entries past the clamp range are
-     * code bytes > 31, so a field can carry into the next one, and the even pixel's B can
-     * carry into the odd pixel's R. */
-    for (int y = 0; y < height; y++)
-        for (int x = 0; x < width; x += 2) {
-            int u = slot[0xA000 + (y >> 1) * 256 + x] - 128;
-            int v = slot[0xA000 + (y >> 1) * 256 + x + 1] - 128;
-            uint32_t word = 0;
-            for (int k = 0; k < 2; k++) {
-                int Y = slot[y * 256 + x + k] - 4 * ((x + k + y) & 1);
-                uint32_t R = T[Y + 2 * v], B = T[Y + 2 * u], G = T[Y - (v + (u >> 1))];
-                word += (R + (G << 5) + (B << 10)) << (16 * k);
-            }
-            out[y * width + x] = (uint16_t)word;
-            out[y * width + x + 1] = (uint16_t)(word >> 16);
-        }
-}
-
-/* Rev 5 player: same blitter, but its literal pool moved, so one byte of the table's
- * index range (IWRAM 0x380 = T[400]) differs from VX++ Shrek. The blitter builds each
- * horizontal pixel pair in one register by ADDING the six table values, shifted, and
- * stores it as one word, so a table byte > 31 (T[k] for k >= 384 is code) carries into the
- * next field and into the odd pixel. */
-void vxgb_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int height)
-{
-    const uint8_t *T = vxgb_iwram_lo + 0x1f0;
     for (int y = 0; y < height; y++)
         for (int x = 0; x < width; x += 2) {
             int u = slot[0xA000 + (y >> 1) * 256 + x] - 128;
@@ -706,13 +683,18 @@ void vxgb_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int heigh
         }
 }
 
-/* ------------------------------------------------------------------ test API (fuzz.py, ctypes) */
-vx_dec *vx_new(void) { return calloc(1, sizeof(vx_dec)); }
-void vx_free(vx_dec *d) { free(d); }
-uint8_t *vx_ewram(vx_dec *d) { return d->ew; }
-unsigned long vx_errors(vx_dec *d) { return d->err; }
-uint32_t vx_bitpos(vx_dec *d) { return vx_bits_pos(&d->bs); }
-void vx_set_mbbits(vx_dec *d, uint32_t *p) { d->mb_bits = p; }
+void vx_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int height)
+{
+    blit(vx_iwram_lo, slot, out, width, height);
+}
+
+/* Rev 5 player: same blitter, but its literal pool moved, so one byte inside the table's
+ * index range (IWRAM 0x380 = T[400]) differs from the VX++ player. */
+void vxgb_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int height)
+{
+    blit(vxgb_iwram_lo, slot, out, width, height);
+}
+
 void vx_yuv_to_bgr555_any(vx_dec *d, const uint8_t *slot, uint16_t *out)
 {
     (d->vxgb ? vxgb_yuv_to_bgr555 : vx_yuv_to_bgr555)(slot, out, d->width, d->height);
