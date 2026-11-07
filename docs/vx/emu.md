@@ -1,6 +1,6 @@
 # Shrek GBA Video -- emulator ground-truth harness
 
-Author: emu agent. Status: v1. Code in `emu/`. All results below are verified on this ROM,
+Code in `tools/vx/emu/`. All results below are verified on this ROM,
 not inferred.
 
 ## TL;DR -- regenerate ground truth
@@ -22,7 +22,7 @@ python3 capture.py --hash-only --frames 40000 --out manifest
 # Other carts / streams: --stream picks the movie and walks the cart's menu to it
 python3 capture.py --rom combo.gba --stream 0x1eef800 --hash-only --frames 99999 --out st
 python3 mkmanifest.py --rom combo.gba --stream 0x1eef800 --name shrek-sharktale-rev5_1eef800 \
-    --cart "Shrek + Shark Tale (USA) Rev 5" st          # -> verify/*.frame_md5.csv.gz, verify/streams.json
+    --cart "Shrek + Shark Tale (USA) Rev 5" st          # -> verify/vx/*.frame_md5.csv.gz, verify/vx/streams.json
 # 5. Unicorn oracle: seed state (main loop idle after VX frame N, N >= 4), then decode / verify / trace
 python3 mkstate.py 100                       # -> states/wait_00100.state
 python3 uc_decode.py states/wait_00100.state --frames 199 --verify frames --audio-blocks 3000 --verify-audio audio
@@ -52,7 +52,7 @@ Matrix mapper (`src/gba/cart/matrix.c`). No BIOS file is needed: mGBA's built-in
 | `audio/core_mix.wav` | the libretro core's mixed stereo output. **Not bit-exact**, for listening only |
 | `states/vx_NNNNN.state` | mGBA savestate taken right after VX frame N was decoded (checkpoints) |
 | `manifest/frames/index.csv`, `manifest/audio/blocks.csv` | whole-movie md5 manifest. `vram_md5` hashes the picture rectangle the player centres on the screen (the whole 240x160 screen for a 240x160 movie) |
-| `mkmanifest.py` | copies a hash-only capture into `verify/` (frame md5s, plus an md5 digest of the played audio blocks in `streams.json`) |
+| `mkmanifest.py` | copies a hash-only capture into `verify/vx/` (frame md5s, plus an md5 digest of the played audio blocks in `streams.json`) |
 
 ## How the movie is started
 
@@ -135,14 +135,14 @@ whole movie.
 
 ## Captures on disk
 
-- `emu/frames`, `emu/audio`: VX frames 0..299 plus audio blocks 0..5471.
-- `emu/deep20000`: frames 20000..20029 plus 600 audio blocks. Unicorn reproduces all 29 frames and 400 blocks from `wait_20000`.
-- `emu/deep37800`: frames 37800..37836. The movie ends at VX frame 37836, so it has 37837 frames, which
+- `tools/vx/emu/frames`, `tools/vx/emu/audio`: VX frames 0..299 plus audio blocks 0..5471.
+- `tools/vx/emu/deep20000`: frames 20000..20029 plus 600 audio blocks. Unicorn reproduces all 29 frames and 400 blocks from `wait_20000`.
+- `tools/vx/emu/deep37800`: frames 37800..37836. The movie ends at VX frame 37836, so it has 37837 frames, which
   matches the header. The last few frames have no `vram_md5`, because the player exits before it blits them.
   When the movie ends the player clears the ctx, and `capture.py` stops.
-- `emu/states/vx_KKKKK.state` for K = 997, 1997, ..., 36997: seek checkpoints. `wait_00004`, `wait_00150`
+- `tools/vx/emu/states/vx_KKKKK.state` for K = 997, 1997, ..., 36997: seek checkpoints. `wait_00004`, `wait_00150`
   and `wait_20000` are oracle seeds.
-- `emu/manifest/`: whole-movie md5s (see the validation note below).
+- `tools/vx/emu/manifest/`: whole-movie md5s (see the validation note below).
 
 ## Whole-movie validation
 

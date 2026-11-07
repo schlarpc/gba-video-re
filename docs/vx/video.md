@@ -1,10 +1,10 @@
 # VX++ video bitstream (Shrek GBA Video) -- reimplementation-grade spec
 
-Author: video-bitstream agent. Status: **complete, verified bit-exact on the whole movie.**
-Residual coefficients (CBP, VLC, escape, dequant, IDCT) are specified in `docs/residual.md` (residual agent);
+Status: **complete, verified bit-exact on the whole movie.**
+Residual coefficients (CBP, VLC, escape, dequant, IDCT) are specified in `residual.md`;
 this document covers everything else in the video stream.
 
-Reference decoder: `decoder/` (C99). `make` builds `vxdec` and `libvxdec.so`.
+Reference decoder: `reference/vx/decoder/` (C99). `make` builds `vxdec` and `libvxdec.so`.
 
 ```sh
 cd decoder && make
@@ -19,7 +19,7 @@ python3 fuzz.py --cases 2000       # differential fuzz vs the ARM decoder (rando
 | `vxdec.c`, `vxdec.h` | the decoder (frame header, MB loop, MV prediction, partition tree, every prediction mode, YUV->BGR555) |
 | `vxdec_main.c` | CLI (ROM or bare VX file, seeking, .yuv / .bgr555 / .y4m / md5 output) |
 | `bits.h` | register-exact bit reader (shared with residual.c) |
-| `residual.h` / `residual.c` | interface (owned here) / implementation (residual agent) |
+| `residual.h` / `residual.c` | interface / implementation |
 | `fill_tables.h` | generated op lists for the "bilinear" fills (from `gen_fill.py` + `symfill.py`, symbolic execution of the ARM) |
 | `iwram_lut.h` | runtime IWRAM bytes 0x03000000..0x030003FF (clamp table of the RGB blitter) |
 | `uc_oracle.py` | standalone unicorn oracle: runs the player's own decoder from ROM images, no savestate needed |
@@ -29,11 +29,11 @@ python3 fuzz.py --cases 2000       # differential fuzz vs the ARM decoder (rando
 
 | check | result |
 |---|---|
-| whole movie, one pass from power-on, md5 of the 0xF000-byte YUV slot vs `emu/manifest` | **37837/37837** |
+| whole movie, one pass from power-on, md5 of the 0xF000-byte YUV slot vs `tools/vx/emu/manifest` | **37837/37837** |
 | md5 of the BGR555 framebuffer image vs manifest `vram_md5` | **37833/37833** (the last 4 frames are never blitted) |
-| raw dumps `emu/frames` 0-299, `deep20000` 20000-20029, `deep37800` 37800-37836 (YUV + VRAM) | 367/367 YUV, 363/363 VRAM |
+| raw dumps `tools/vx/emu/frames` 0-299, `deep20000` 20000-20029, `deep37800` 37800-37836 (YUV + VRAM) | 367/367 YUV, 363/363 VRAM |
 | seek: fresh decoder started at each of the 195 seek-table entries, 8 frames each | 1555/1555 |
-| seek-table `video_bit` == bit position of that frame in a continuous decode | 195/195; all 37837 frame start bits also equal `container/out/frame_bits.json` |
+| seek-table `video_bit` == bit position of that frame in a continuous decode | 195/195; all 37837 frame start bits also equal `tools/vx/container/out/frame_bits.json` |
 | real ARM decoder (unicorn, `uc_oracle.py`), frames 0-299: slots and the bit position at every MB | all equal |
 | `fuzz.py`: random valid streams + random reference/padding memory, whole EWRAM image + final bit position vs ARM | 0 failures in 3530 random frames (seeds 1, 3, 7; every mode, every block size, MVs to +-127/+-48, se up to +-127, intra at picture edges, all intra sub-modes, QP changes, residual calls with CBP 0) |
 
@@ -141,7 +141,7 @@ block(w, h, pmx, pmy):
       5: mc_dc(w, h)                              // section 6.2
       6: if w >= 4 and h >= 4: intra_whole(w, h)  else nothing (no bits)     // 7.1
       7: if w >= 4 and h >= 4: intra_4x4(w, h)    else nothing (no bits)     // 7.3
-    if r: residual(w, h)                          // 0x03005650, docs/residual.md; only w,h in {8,16}
+    if r: residual(w, h)                          // 0x03005650, residual.md; only w,h in {8,16}
 ```
 Moving to a sub-block adds `rows*256` to the luma offset and `(rows/2)*256` to the chroma offset, or `cols` to both
 (chroma is interleaved, so w/2 luma columns = w/2 chroma bytes). The residual is added after the whole block
@@ -312,4 +312,4 @@ and the stored MV (the last MC sub-block's), though its notes do not state these
 in this document was re-derived from the ARM code and verified as in section 0. Additions here are
 the register-exact bit reader (section 1), the exact fill operations when a corner overflows (6.3),
 the memory outside the picture (3), and the clamp table, dither and carries of the RGB blit (8).
-See `docs/prior-art.md` for the full comparison.
+See `prior-art.md` for the full comparison.

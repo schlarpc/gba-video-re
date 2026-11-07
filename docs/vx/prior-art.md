@@ -32,7 +32,7 @@ Short version:
 | ["The Mobiclip Formats"](https://gist.github.com/quatric/3e2f0caa5c22a9a8b24d9cf1ffdfe860), section 8.3 | quatric | gist first published 2026-07-30, revised to 2026-08-26 | A summary of the mobipeg GBA notes: the two revisions, the decoder images in ROM, CAVLC vs. the proprietary VLC, the framing differences, the H.264 zigzag in VXGB |
 | [CharlesVanEeckhout/actimagine](https://github.com/CharlesVanEeckhout/actimagine) | Charles Van Eeckhout | 2024-12 to 2026-05 | Python reference decoder for the DS `.vx` format. mobipeg's shared VX core (and so its VXGB residual path) is derived from it |
 | ffmpeg-devel patch "add Actimagine VX video decoder" ([March 2021](https://lists.ffmpeg.org/pipermail/ffmpeg-devel/2021-March/277989.html)) | Gericom (Florian Nouwt) | 2021-03 | The original DS VX video decoder (not merged). The actimagine README credits it |
-| FFmpeg `libavcodec/mobiclip.c` | Florian Nouwt, Adib Surani, Paul B Mahol | in FFmpeg since 2020-08 | The MobiClip video decoder. Its coefficient table set 1 and escape tables are the same as the VX++ coefficient code (`docs/residual.md` section 3) |
+| FFmpeg `libavcodec/mobiclip.c` | Florian Nouwt, Adib Surani, Paul B Mahol | in FFmpeg since 2020-08 | The MobiClip video decoder. Its coefficient table set 1 and escape tables are the same as the VX++ coefficient code (`residual.md` section 3) |
 | [MultimediaWiki: Actimagine Video Codec](https://wiki.multimedia.cx/index.php/Actimagine_Video_Codec) | MultimediaWiki contributors | last edit 2024-07-27 | The DS `.vx` codec family: H.264-like, recursive 16x16 subdivision, three references, the LPC audio codec and its 3124-byte codebook. Names the GBA SDK but documents no GBA format |
 | ["A quick glance at another bunch of codecs"](https://codecs.multimedia.cx/2025/08/a-quick-glance-at-another-bunch-of-codecs/) | Kostya Shishkov | 2025-08-23 | Notes that a GBA Video cart's video starts with `VXGB`, like the DS `VXDS`. mobipeg's VXGB notes cite this post as the original public note |
 | ["Reverse Engineering GBA Video"](https://abahbob.com/reverse-engineering-gba-video) | Abahbob | 2024-04 | The Majesco "ADS" cartridges (SFCD and MMSTR archives, image codec). It notes that the other cartridges use Actimagine VX, but does not analyse them |
@@ -41,8 +41,8 @@ Short version:
 No other public analysis of the GBA VX formats was found.
 
 How this repository used the prior art: the container work started from the mobipeg notes,
-and the first version of the parse-only walker (`container/vxvwalk.py`) took the mode
-semantics and the CBP table from mobipeg's `vx.c` (`docs/container.md` 5.2a). After that,
+and the first version of the parse-only walker (`tools/vx/container/vxvwalk.py`) took the mode
+semantics and the CBP table from mobipeg's `vx.c` (`container.md` 5.2a). After that,
 every element listed below was re-derived from the cartridge's ARM code and checked
 against the ARM code or the emulator. No mobipeg or FFmpeg code is in this repository.
 
@@ -53,7 +53,7 @@ against the ARM code or the emulator. No mobipeg or FFmpeg code is in this repos
 mobipeg was built from source at `d5bb54f` with a minimal configuration (the `gbavx`
 demuxer and the `gba_vx` and `vx_audio` decoders). It was run on every VX stream of the
 seven cartridges in this repository's tables. Two comparisons were made against
-`decoder/vxdec`, which matches the emulator's frame hashes for every frame of every stream
+`reference/vx/decoder/vxdec`, which matches the emulator's frame hashes for every frame of every stream
 (README, "Verification status"):
 
 1. **Unmodified mobipeg.** Its output is RGB24 (`yuv_to_rgb24` in `gbavxdec.c`). The `framemd5`
@@ -91,14 +91,14 @@ The two failures are both in the frame-level wrapper `gbavxdec.c`, not in the co
 - **A QP change inside a segment is not supported.** mobipeg models the stream as one QP
   `ue(v)` per segment and a 1-bit "marker" between frames, and skips the marker without
   reading it. The player instead reads one `ue(v)` at the start of every frame, where
-  `ue = 0` (the single bit `1`) means "keep the QP" (`docs/video.md` 2.1). The two models
+  `ue = 0` (the single bit `1`) means "keep the QP" (`video.md` 2.1). The two models
   agree only while the QP never changes inside a segment. Shark Tale (Rev 6) changes it at
   frames 32893 and 34241. There mobipeg desynchronises, reports "macroblock (0,0) failed",
   and drops the rest of the segment: frames 32893-33173 and 34241-34523.
 
 The comparison covers the visible picture only. mobipeg fills its frame memory with 0x80
 at each segment start, where the player fills luma with 0x00 and never clears it on a seek
-(`docs/video.md` 3). The padding columns therefore differ, but no visible pixel in these
+(`video.md` 3). The padding columns therefore differ, but no visible pixel in these
 streams depends on them.
 
 **Audio.** For Shrek (Rev 6), mobipeg's 16-bit 16384 Hz output was compared with
@@ -106,7 +106,7 @@ streams depends on them.
 691,840 AFrames that mobipeg outputs are identical. The other 364 form 194 short runs (1 to
 9 AFrames), and each run starts exactly at an intra AFrame (a seek point). The DS-derived
 decoder keeps the synthesis history across an intra AFrame. The player clears it
-(`docs/container.md` 6), and the player's ARM routine matches `vxaudio.py` on all 691,876
+(`container.md` 6), and the player's ARM routine matches `vxaudio.py` on all 691,876
 AFrames. mobipeg also stops 36 AFrames before the end of the stream with a decode error.
 mobipeg's notes say that its decoder flush clears all history, so mobipeg's own seeks do
 match the cartridge. It does not model the GBA output stage (4x interpolation to 65536 Hz
@@ -178,7 +178,7 @@ mkdir ../build && cd ../build
   --enable-protocol=file,pipe --enable-filter=format,null,aformat,anull,scale,aresample
 make -j ffmpeg
 ./ffmpeg -resource 0 -i ROM.gba -map 0:v -c:v rawvideo -f framemd5 mobipeg.md5
-decoder/vxdec ROM.gba --stream 0 --count 999999 --y4m ours.y4m
+reference/vx/decoder/vxdec ROM.gba --stream 0 --count 999999 --y4m ours.y4m
 ```
 
 Then convert each y4m frame with the formula in mobipeg's `yuv_to_rgb24` (chroma sample
@@ -186,3 +186,46 @@ Then convert each y4m frame with the formula in mobipeg's `yuv_to_rgb24` (chroma
 md5 with the `framemd5` line of the same frame (match on pts, since mobipeg drops frames
 after an error). `-resource N` selects the Nth stream in ROM order, the same order as
 `vxdec --list`.
+
+## 6. Family summary, element by element (all VX carts)
+
+Sources:
+- **[G]** quatric, "The Mobiclip Formats" gist, section 8 (VX / VX++ / VXGB):
+  https://gist.github.com/quatric/3e2f0caa5c22a9a8b24d9cf1ffdfe860
+- **[M]** quatric/mobipeg: `doc/gba_video_vxpp.md`, `doc/gba_video_vxgb.md`, `libavcodec/vx.c`,
+  `libavcodec/vx_audio.c`, `libavformat/gbavx.c`: https://github.com/quatric/mobipeg
+- **[A]** CharlesVanEeckhout/actimagine (Python VX reference):
+  https://github.com/CharlesVanEeckhout/actimagine
+- **[F]** FFmpeg `mobiclip.c` (DS/Wii Mobiclip), for the family resemblance only.
+- **[mGBA]** "Dumping the Undumped", mgba.io 2015-10-20, and endrift/duplo: the Matrix mapper registers.
+
+We used these only as hints. Every element below was derived from, or checked against, the
+cart's ARM code: by the C decoder being bit-exact against mGBA on all 10 streams, by the unicorn
+oracles, and by the fuzzers. The detailed corrections are in
+`container.md` 7, `video.md` 10, `residual.md` "Prior art" and `vxgb.md`. This table is the
+family-level summary.
+
+Verdicts: **agrees**: prior art matches the ARM; **corrected**: prior art was wrong or
+incomplete for these carts; **new**: not in the prior art we found.
+
+| element | prior art | verdict |
+|---|---|---|
+| Which carts are VXGB | [M] documents VXGB for *Shrek* (USA) (Rev 5) only | **extended**. All three Rev 5 single-movie carts (*Shrek*, *Shark Tale*, *Shrek 2*) carry the identical VXGB player. The Rev 5 *Shrek + Shark Tale* cart is VX++ |
+| Matrix mapper registers (0x08800180..0x0880018C, busy bit 12 of 0x08000180, 512-B pages) | [mGBA], duplo | **agrees**. The copy latency is undocumented anywhere; see [perf.md](perf.md) P2.5 |
+| Header layout, 0x38 bytes | [G][M] | **agrees**. Field roles pinned to code: 0x10 is the Timer3 reload (not a "frame rate"); 0x14/0x18/0x2c are unread in VX++ |
+| Header 0x14 = QP in VXGB | [M] "active quantizer (32)" | **agrees** (32 on *Shrek* and *Shrek 2*, 34 on *Shark Tale*) |
+| VX++ per-frame QP | [G][M] "per-segment quantiser delta + 1-bit inter-frame marker" | **corrected**: one `ue(v)` per frame, 0 = keep (`container.md` 5.2) |
+| VXGB frame header | [M] "segment begins directly with its first macroblock" | **agrees**, and it holds for every frame, not only segment starts |
+| Partition tree, 24/12-entry mode tables, mode set | [G][M][A] | **agrees** in structure. **Corrected** details: one MV predictor per MB shared by all sub-blocks; the MV array stores the last MC sub-block's MV; intra 4x4 mode context is restricted to the current block; DC availability is by picture position only (`video.md` 10) |
+| Motion compensation precision | [G] half-pel (the DS codecs) | **corrected** for GBA: integer-pel only; chroma MV = floor(mv/2) |
+| Bilinear (mode 4) intra fill | [G][F] Mobiclip-style recursive fill | **agrees** in geometry. **New**: overflowed corners follow a code-layout-dependent mix of stored bytes and full-precision registers. It is reproduced from the ARM by symbolic execution (`fill_tables.h`) |
+| VX++ coefficient VLC | [G] "proprietary codebook" | **identified**: it is the MPEG-4 intra TCOEF (last, run, level) table, with its escape (`residual.md`) |
+| VXGB residual = H.264 CAVLC | [M] CAVLC with nC = rounded mean of left/top | **agrees** on the code tables and the nC rule. **Corrected/new**: the syntax is not H.264's (total_zeros right after coeff_token, level and run interleaved, explicit sign bit, a different suffix-length rule and escape); nC >= 8 uses a 6-bit FLC; chroma shares one nC and one grid entry for U and V; the grids persist with border reads 0 (`vxgb.md` 4-5) |
+| VXGB CBP | [M] 32-entry table at IWRAM 0x03005e90, 4 luma + paired chroma bit | **agrees** |
+| Zigzag, dequant, IDCT | [G][M] H.264-style | **agrees**. **New**: dequant uses 32-bit wrap, and the VX++ DC-only path gives the same result as the full path |
+| Colour conversion | [M] R=Y+2Cr, G=Y-Cr-Cb/2, B=Y+2Cb | **agrees**. **New**: 2x2 ordered dither; the clamp table runs into code bytes, whose values carry between colour fields (the blitter adds fields, it does not OR them; seen on *Shark Tale*) |
+| Audio codec | [G] lists IMA ADPCM for VX; [M] VX audio = LPC/pulse codec with a 3,124-byte trained codebook, VBR 20/14/12/10-byte AFrames | [M] **agrees**; the IMA ADPCM attribution in [G] is **corrected** for the GBA carts. **New**: on the GBA an intra AFrame also resets the synthesis, noise-shaper and interpolator state, so every seek point is an exact audio restart (the DS decoder carries state across) |
+| AFrame size | [M] 20/14/12/10 (the reference repo's own first `player.md` draft said a fixed 20) | **agrees** with [M]; 20 is only the bounce-buffer size |
+| A/V mapping at seek points | no per-movie offset in [G]/[M] beyond the 128/7 AFrames-per-frame rate | **new**: the encoder's alignment differs per movie (`container.md` 5.4, `vxgb.md` 8); the player has no formula and restarts both streams at the seek entry |
+| Player timing: blit skipping, audio-window refill protocol, the single-slot request and its failure mode | none | **new** ([player.md](player.md) 11.3-11.4, [perf.md](perf.md) part 2) |
+| CPU / bus / mapper load per stream | none | **new** ([perf.md](perf.md) part 2) |

@@ -32,3 +32,4 @@ tools/*/emu/sys/
 *.y4m
 *.state
 __pycache__/
+tools/vx/container/out/

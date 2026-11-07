@@ -2,10 +2,10 @@
 
 Scope: everything between the cartridge bytes and the two codec inputs (video bitstream,
 audio AFrames). Confidence tags: **(code)** read in the player's ARM code, **(data)**
-verified over the whole ROM by `container/vxdemux.py walk`, **(emu)** verified by running the
+verified over the whole ROM by `tools/vx/container/vxdemux.py walk`, **(emu)** verified by running the
 player's own routine under Unicorn, **(prior)** only from prior art.
 
-Tools (all in `./container/`):
+Tools (all in `tools/vx/container/`):
 - `vxdemux.py` -- parser/demuxer/validator/audio decoder front end (`info`, `walk`, `extract`, `wav`).
 - `vxaudio.py` -- bit-exact model of the player's audio decoder + 8-bit output stage.
 - `emu_audio.py` -- runs IWRAM `0x03006a14` (the player's AFrame decoder) in Unicorn and diffs it against `vxaudio.py`.
@@ -13,7 +13,7 @@ Tools (all in `./container/`):
 - `armdis.py` -- capstone helper with the EWRAM/IWRAM image mappings below.
 - `vxcart.py` -- finds the player's RAM images through the loader's program table and lists the VX++ streams in a ROM.
 - Every tool takes `--stream OFF|IDX` (the header offset, or an index into the stream list); default = first stream.
-- Outputs in `container/out/`: `frame_bits_<H>_<tag>.json` (per stream: nframes+1 frame start bits + per-frame QP field),
+- Outputs in `tools/vx/container/out/`: `frame_bits_<H>_<tag>.json` (per stream: nframes+1 frame start bits + per-frame QP field),
   `extract/` (`video.bin`, `audio.bin`, `audio_codebook.bin`, `segments/seg_NNN.vxv`, `segments.csv`,
   `index.csv`, `frames/NNNNN.vxv` + `frames/NNNNN.aud` for all 37837 frames),
   `shrek_audio_16k.wav` (whole movie, 16-bit 16384 Hz), `shrek_first60s_hw8.wav` (exact 8-bit 65536 Hz FIFO stream).
@@ -265,14 +265,14 @@ item that plays its 240x160 credits stream.
   agree until a stream changes QP inside a segment; Shark Tale (Rev 6) does, and mobipeg loses
   those two segments.
 - Their audio decoder (DS-derived) keeps the synthesis history across intra AFrames; the player
-  clears it (section 6). 364 of Shrek's AFrames differ for that reason. See `docs/prior-art.md`.
+  clears it (section 6). 364 of Shrek's AFrames differ for that reason. See `prior-art.md`.
 
 ## 8. Validation status
 - `vxdemux.py walk`: seek table monotonic, pad words 0, all chapters on seek points,
   hdr 0x24/0x30 match tables, every segment starts with a nonzero ue(v) QP, all 195 audio seek
   offsets land on AFrame starts, intra AFrames == seek points exactly, frame->AFrame formula
   matches all seek entries and the stream total, zero tails in both streams -> **WALK OK**.
-- `vxdemux.py walk --video` (or `container/walk_video_all.py`): all 37,837 frames parse; all 194
+- `vxdemux.py walk --video` (or `tools/vx/oracle/walk_video_all.py`): all 37,837 frames parse; all 194
   interior seek offsets bit-exact; last segment ends in the final nonzero halfword.
 - `emu_audio.py` (player's ARM decoder in Unicorn vs `vxaudio.py`, comparing the 512 output bytes
   and consumed length per AFrame): 200,000 AFrames from the start (56 intra boundaries) 0 mismatches;
@@ -281,7 +281,7 @@ item that plays its 240x160 credits stream.
 - Decoded audio is sane: speech/music spectrum (97% of energy < 2 kHz), no clipping, HF energy above
   16 kHz = the noise shaper's pushed quantisation noise.
 
-## 9. Corrections to docs/player.md sec. 5 (audio)
+## 9. Corrections to player.md sec. 5 (audio)
 - AFrames are **not** fixed 20 bytes: `0x03006a14` returns `len_table[mode]` from IWRAM 0x03006b8e =
   {20,14,12,10}; 20 is only the bounce-buffer copy size (max AFrame).
 - Ping-pong buffers are 0x06013680 and 0x06013a80 (0x400 apart), each [excitation n-2 | excitation n-1/n].

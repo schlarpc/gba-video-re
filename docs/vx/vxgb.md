@@ -7,7 +7,7 @@ instead of `VX++` at the stream header. quatric reports a third, *Shrek* (USA) (
 could not check. quatric's mobipeg (`doc/gba_video_vxgb.md`, `libavcodec/vx.c`, August 2026)
 documented and implemented this revision first: no frame header, the header QP, CAVLC with the
 H.264 tables and the rounded-mean nC, the shared chroma nC, CBP32 and the H.264 zigzag. Its
-decoder is exact on every frame of both movies below (`docs/prior-art.md`). This document adds
+decoder is exact on every frame of both movies below (`prior-art.md`). This document adds
 the player's memory map, the grid bookkeeping, a written comparison with H.264 CAVLC, the blit
 and audio details, and whole-movie verification.
 
@@ -18,7 +18,7 @@ and audio details, and whole-movie verification.
 
 Both carts contain the same player program (ROM 0x8a00..0x18a00, sha1
 `33a2f3a71000ac5dcfbe6791252eeb0916dc3a33`); they differ only in the cart header and the
-movie. The Rev 6 releases of the same two movies use the VX++ player of `docs/player.md`.
+movie. The Rev 6 releases of the same two movies use the VX++ player of `player.md`.
 
 This document lists **every difference from VX++**. Everything not mentioned here is the
 same as in `container.md`, `video.md` and `residual.md`, and was checked to be the same:
@@ -207,7 +207,7 @@ lengths 0x03006130) and consumed with one refill; total_zeros and run_before (ze
 peek 9/6/6/5/5/6/6/6/6/5/4/4/3/2/1 resp. 1/2/2/3/3/3 bits into a table; the level prefix
 shifts out its zeros and the 1, then refills once; suffix+sign is one shift of sL+1 (escape:
 12) bits; a trailing-one sign is one bit. Each group refills once if the count went negative.
-`decoder/vxgb_residual.c` mirrors these groups. Invalid codes: an all-zero 9-bit total_zeros
+`reference/vx/decoder/vxgb_residual.c` mirrors these groups. Invalid codes: an all-zero 9-bit total_zeros
 peek for TC=1 decodes as 0 with length 1; the coeff_token tree yields no symbol for
 `00000000 000000xx`-like codes; zero fills that run past the buffer loop ~2^32 times in the
 ARM. vxdec flags these as errors.
@@ -240,14 +240,14 @@ values of a horizontal pixel pair (`R | G<<5 | B<<10`, odd pixel `<< 16`) into o
 and stores a word, so table bytes above 31 (indices >= 384 read the blitter's own code)
 carry into the next field and into the odd pixel. Shark Tale hits this on single pixels (for
 example frame 62, pixel (187, 15): emulator R = 10 where an OR-combined model gives 7);
-vxdec and `emu/yuv2bgr.py` model the addition (this also applies to VX++, which never
+vxdec and `tools/vx/emu/yuv2bgr.py` model the addition (this also applies to VX++, which never
 triggers it).
 
 ## 8. Container and audio
 
 - Header, chapter table, seek table, seek procedure, video bit reader, audio stream layout
   and AFrame codec: **unchanged**. The audio routine is byte-identical code at a new address;
-  `container/vxaudio.py` matches it on every AFrame (section 9).
+  `tools/vx/container/vxaudio.py` matches it on every AFrame (section 9).
 - The encoder's audio/video alignment differs per movie. Seek-point AFrame index vs. frame:
   Shrek (VX++) `floor((128f+1)/7)`; Shark Tale `floor((128f+4)/7)` at all 191 seek points;
   Shrek 2 `floor(128f/7) + 1` (f > 0) at all 197. The player has no formula: it plays both
@@ -256,9 +256,9 @@ triggers it).
 
 ## 9. Verification
 
-Tools: `decoder/vxdec` (auto-detects `VXGB`), `decoder/uc_oracle_vxgb.py` (the Rev 5
-player's own decode_frame in unicorn), `decoder/verify_vxgb.py`, `decoder/fuzz_vxgb.py`,
-`container/emu_audio.py`, `container/vxdemux.py walk --video`, and `emu/capture.py` (A at the
+Tools: `reference/vx/decoder/vxdec` (auto-detects `VXGB`), `tools/vx/oracle/uc_oracle_vxgb.py` (the Rev 5
+player's own decode_frame in unicorn), `tools/vx/verify/verify_vxgb.py`, `tools/vx/oracle/fuzz_vxgb.py`,
+`tools/vx/oracle/emu_audio.py`, `tools/vx/container/vxdemux.py walk --video`, and `tools/vx/emu/capture.py` (A at the
 title menu at emu frame 1000 starts Play on both carts).
 
 | check | Shark Tale | Shrek 2 |
@@ -295,10 +295,10 @@ total_zeros/run_before value) give the same whole EWRAM image and bit position f
 and the C decoder. Mutations of the nC rounding, the chroma nC sharing, the suffixLength
 threshold and the split zeroing rule are each caught within 10 cases.
 
-Hashes-only manifests: `verify/sharktale-rev5_20200.frame_md5.csv.gz`,
-`verify/shrek2-rev5_20200.frame_md5.csv.gz` (per frame: yuv_md5, vram_md5 from the emulator),
-`verify/*-rev5_20200.frame_bits.json.gz` (start bit of every frame), and the audio block
-digests in `decoder/verify_vxgb.py`.
+Hashes-only manifests: `verify/vx/sharktale-rev5_20200.frame_md5.csv.gz`,
+`verify/vx/shrek2-rev5_20200.frame_md5.csv.gz` (per frame: yuv_md5, vram_md5 from the emulator),
+`verify/vx/*-rev5_20200.frame_bits.json.gz` (start bit of every frame), and the audio block
+digests in `tools/vx/verify/verify_vxgb.py`.
 
 ## 10. Building
 

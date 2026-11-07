@@ -1,9 +1,9 @@
 # Shrek GBA Video -- player executable (static RE)
 
-Author: player-RE agent. Status: v1. Addresses are run addresses unless marked "ROM" (= file offset).
+Addresses are run addresses unless marked "ROM" (= file offset).
 Decompiler output, raw disassembly and the Ghidra project were working files and are not
 included in this repository (they reproduce the cartridge's code); regenerate them from your own
-ROM dump with `tools/extract_images.py` and Ghidra.
+ROM dump with `tools/vx/extract_images.py` and Ghidra.
 
 ## 0. Decoder function map (for bitstream RE) -- IWRAM, hand-written ARM
 
@@ -217,7 +217,7 @@ Entry 0x02000058 (crt0). IRQ vector `[0x03007FFC] = 0x03000040`. Stacks: [0x0200
 | 0x104 / 0x108 | width / height |
 | 0x10c | coef VLC LUT ptr (0x020010e4) |
 
-## 7. Container (header field use, cross-ref docs/container.md)
+## 7. Container (header field use, cross-ref container.md)
 
 The header is at file+0. Video bits start at +0x38. Index entry = {frame, video bit offset from +0x38, audio byte
 offset from the audio base, 0}.
@@ -258,7 +258,12 @@ Seek = 0x020006c0(state, forward, chapter_mode). It mutes audio, finds the index
 0x02000e3c draw_char · 0x02000e90 draw_time · 0x02000ffc draw_text · 0x02001068 clear_oam · 0x020010a4 BIOS CpuSet (swi 0x0B) ·
 0x020010bc BIOS LZ77UnCompVram (swi 0x12).
 
-## 10. Open items / caveats
+## 10. Open items / caveats (first static pass)
+
+These were the open items of the first static pass. All are now settled by the bit-exact
+decoder: the intra predictor order, escape coding and CBP map are in [video.md](video.md) and
+[residual.md](residual.md), the audio synthesis in [container.md](container.md) 6, and MC is
+integer-pel at every block size. The current open issues are in [README.md](README.md).
 
 - The decoder is hand-written asm with a private register ABI, so Ghidra's C for 0x03000xxx-0x03005xxx is unreliable.
   Read `iwram_r2.txt` for those. The C for player_run / timer ISRs / EWRAM code is good.
@@ -268,3 +273,99 @@ Seek = 0x020006c0(state, forward, chapter_mode). It mutes audio, finds the index
 - The internals of the audio synthesis functions (0x0300645c/0x0300662c/0x030068e0) are not analyzed.
   The packet size (20), output rate and upsampler are certain.
 - The decode is fully integer-pel (no sub-pel interpolation found in mc16_*). Worth confirming in the 8/4-wide MC.
+
+## 11. The VX family: player builds, code placement and the audio window
+
+Sections 0-10 above document the VX++ player on *Shrek* (Rev 6); the VXGB player is in
+[vxgb.md](vxgb.md) section 1. This part records which cartridge carries which build and adds the
+player-level differences that matter for timing, found while porting the cycle profiler to the
+Rev 5 build. Addresses are GBA bus addresses.
+
+### 11.1 Builds and cartridges
+
+| build (classifier id) | player sha1, ROM 0x8a00..0x18a00 | stream magic | cartridges |
+|---|---|---|---|
+| VXGB `0600eda5896e` | `33a2f3a71000ac5dcfbe6791252eeb0916dc3a33` | `VXGB` | *Shrek* (USA) (Rev 5) `2dedea86...`, *Shark Tale* (USA) (Rev 5) `6128a476...`, *Shrek 2* (USA) (Rev 5) `5cd627e2...` |
+| VX++ `344d68b1e9aa` | `7324ebf35a10601b8c09bcff008b76144e2734cb` | `VX++` | *Shrek* (USA) (Rev 6) `95d61205...`, *Shark Tale* (USA) (Rev 6) `9bc5b607...`, *Shrek 2* (USA) (Rev 6) `3bcb4acc...`, *Shrek + Shark Tale* (USA) (Rev 5) `f23390b7...` |
+
+On the three VXGB carts, the whole range ROM 0x200..0x18a00 (loader, program table, menu program
+and player images) is byte-identical (sha1 `c7d2e44a...`). The cart header and the menu data at
+ROM 0x20000 differ. *Shrek* (Rev 5) was classified as VXGB but never checked. It is now
+confirmed: same player bytes, stream magic `VXGB`, header QP 32 (header 0x14), and every frame
+decodes bit-exact (see [README.md](README.md)). The *Shrek + Shark Tale* cart is a "Rev 5" cart, but it carries
+the VX++ build.
+
+### 11.2 Code placement and its cost
+
+| | VX++ | VXGB |
+|---|---|---|
+| video decoder, blitter, audio decoder | IWRAM (32-bit, 0 waitstates) | IWRAM |
+| player_run, main loop, idle spin | IWRAM 0x03006df4.. | **EWRAM** 0x02000a00.. |
+| Timer1 / Timer3 handler bodies | IWRAM 0x03007974 / 0x03007ab0 | **EWRAM** 0x02001bcc / 0x02001d08 |
+| per-frame decode wrapper (ref-slot pointers) | function 0x03006d30 | inlined in player_run, 0x020010d8..0x0200115c |
+
+EWRAM is a 16-bit bus with 2 waitstates, so each ARM instruction fetched from it costs 6 cycles
+instead of 1. In VXGB this affects only the bookkeeping parts of the Timer handlers and the main
+loop: about 0.6 % of all cycles, against 0.3 % in VX++ ([perf.md](perf.md) part 2). The idle spin runs from
+EWRAM too, but idle time is idle time.
+
+Event addresses used by the profiler (`tools/vx/perf/vx_perf.py`, PROFILES):
+
+| event | VX++ | VXGB |
+|---|---|---|
+| decode start | 0x03006d30 (wrapper) | 0x03000510 (decode_frame) |
+| decode return: main loop / prefill | 0x03007320 / 0x02000310 | 0x02001164 / 0x02000f84 |
+| Timer3 handler body (av_tick) | 0x03007ab0 | 0x02001d08 |
+| blit call / return | 0x03000370 / 0x03007ccc | 0x03000370 / 0x02001f24 |
+| idle spin ("queue full") | 0x030072f0..0x03007318 | 0x020010b0..0x020010d8 |
+| audio packet done (in av_tick) | 0x03007c0c | 0x02001e64 |
+| audio-window refill (main loop) | 0x0300732c..0x03007358 (calls matrix_map 0x020003a8) | 0x02001194..0x020011d8 (inline, own busy-wait) |
+
+### 11.3 The audio window (both builds; it decides the Shrek 2 Rev 5 underrun)
+
+The audio stream is read through a 2 KiB cartridge window at 0x08001800..0x08001fff, in two
+1 KiB halves. The Matrix mapper fills each half from the 64 MiB ROM.
+
+- **Reader (Timer3 handler).** Every Timer3 tick (21 Hz), av_tick decodes AFrames until it has
+  caught up with the hardware-clocked block counter (Timer1, 128 Hz). An AFrame that would cross
+  0x08002000 is first copied, with its wrap, into a bounce buffer.
+- **Request.** When the read pointer leaves a half, av_tick writes that half's address into
+  **ctx+0xB4**:
+  - 0x08001800 when the pointer crosses 0x08001c00;
+  - 0x08001c00 when it wraps past 0x08002000, and the pointer then moves back by 0x800.
+- **Service (main loop).** After every completed video decode, the main loop looks at ctx+0xB4.
+  If it is nonzero, the loop maps the next 1 KiB of audio (ctx+0x90, then +0x400) into that half
+  and clears ctx+0xB4.
+- **Where it is not serviced.** The main loop checks ctx+0xB4 nowhere else. In particular, the
+  idle spin that waits for a free frame slot does not check it.
+
+Consequences:
+
+1. **The request has a deadline.** After a request is posted, the reader needs one more 1 KiB of
+   audio (about 0.41 s at the 2.5 KB/s these streams average) before it re-enters the requested
+   half. Until then, at most one idle spin plus one decode can delay the service, and a decode
+   (with the interrupts that run during it) can take 0.3 s on a scene cut.
+2. **The request is a single slot.** If the reader posts the other half's request before the
+   main loop has serviced the first, the first request is overwritten (lost). The main loop then
+   maps the next 1 KiB into the wrong half, and the halves stay swapped for the rest of the movie.
+   An offset of 1 KiB is not a whole number of AFrames, so every later AFrame is decoded from a
+   misaligned byte position. This is the *Shrek 2* (Rev 5) failure ([perf.md](perf.md) P2.4).
+3. **A second, smaller window exists.** It lies between the map command and the
+   `str ..., [ctx+0xB4]` that clears the request. That is 3 instructions in VXGB
+   (0x020011c4..0x020011d4) and a function return plus 4 instructions in VX++. A Timer3 IRQ that
+   lands there and posts the other half's request would have that request erased by the clear.
+   We observed the IRQ landing in this window (av_tick then still sees the old value), but no
+   post ever happened in it on any of the 10 streams.
+
+The VX++ code (0x03007320..0x03007358, av_tick 0x03007af4..0x03007c08) has the same structure.
+Only the C code was recompiled. VX++ streams have the same exposure, but their decodes are
+shorter ([perf.md](perf.md) part 2).
+
+### 11.4 Blit skipping and late frames (both builds)
+
+av_tick shows a frame only when the decode queue holds one. Otherwise it keeps a lag counter
+(ctx+0xAC) and shows the frame on a later tick. When the lag is more than 0x20 ticks and odd, it
+drops the blit but still advances the display counter, so the screen keeps the previous picture.
+The VX++ build never reaches the drop path on any stream. The VXGB build drops 26 blits on
+*Shark Tale* and 8 on *Shrek 2*. The emulator manifests show the same frames as the previous
+screen, and `tools/vx/verify/verify_vx.py` accepts exactly those frames.
