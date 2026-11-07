@@ -25,13 +25,13 @@
   "cpu_busy_mean": 0.3632,
   "cpu_busy_p99": 0.5712,
   "cpu_busy_max": 0.5906,
-  "video_decode_share": 0.199,
-  "audio_decode_share": 0.4042,
-  "blit_share": 0.3846,
+  "video_decode_share": 0.0723,
+  "audio_decode_share": 0.1468,
+  "blit_share": 0.1397,
   "late_or_dropped_frames": 0,
   "verified_video": "13828/13828",
   "verified_audio": "1153/1153",
-  "notes": "3x3 VQ (mode 5), 256-entry YUV codebook per scene, Hydrogen Inflate; keyframes = scenes (each scene has its own codebook and LZ window restart, so every scene is a random-access point); seek_points = chapter entries in the stream header (6); fps = 59.7275/5 (header says 12); video kbps p99 from per-frame consumed input bytes (codebook charged to the scene's first frame), 1 s = 12-frame sliding window; cpu figures per 5-VBlank frame window, whole stream, instrumented mGBA; video verified as md5 of the VRAM lines the blit writes (159) at the blit's return; audio verified per 16458-sample block; 134 samples wrap (no clamp) in the cart's own output"
+  "notes": "3x3 VQ (mode 5), 256-entry YUV codebook per scene, Hydrogen Inflate; keyframes = scenes (each scene has its own codebook and LZ window restart, so every scene is a random-access point); seek_points = chapter entries in the stream header (6); fps = 59.7275/5 (header says 12); video kbps p99 from per-frame consumed input bytes (codebook charged to the scene's first frame), 1 s = 12-frame sliding window; cpu figures per 5-VBlank frame window, whole stream, instrumented mGBA; video verified as md5 of the VRAM lines the blit writes (159) at the blit's return; audio verified per 16458-sample block; 134 samples wrap (no clamp) in the cart's own output; video/audio/blit shares are fractions of all CPU time (converted from the perf run's fractions of busy time by multiplying with cpu_busy_mean)"
  },
  {
   "nointro": "Game Boy Advance Video - Sonic X - Volume 2 (USA) (Proto)",
@@ -59,13 +59,13 @@
   "cpu_busy_mean": 0.3225,
   "cpu_busy_p99": 0.5488,
   "cpu_busy_max": 0.5709,
-  "video_decode_share": 0.2447,
-  "audio_decode_share": 0.4552,
-  "blit_share": 0.2865,
+  "video_decode_share": 0.0789,
+  "audio_decode_share": 0.1468,
+  "blit_share": 0.0924,
   "late_or_dropped_frames": 0,
   "verified_video": "14286/14286",
   "verified_audio": "1191/1191",
-  "notes": "4x2 VQ (mode 7), 256-entry YUV codebook per scene, Hydrogen Inflate; keyframes = scenes (each scene has its own codebook and LZ window restart, so every scene is a random-access point); seek_points = chapter entries in the stream header (6); fps = 59.7275/5 (header says 12); video kbps p99 from per-frame consumed input bytes (codebook charged to the scene's first frame), 1 s = 12-frame sliding window; cpu figures per 5-VBlank frame window, whole stream, instrumented mGBA; video verified as md5 of the VRAM lines the blit writes (160) at the blit's return; audio verified per 16458-sample block; 260 samples wrap (no clamp) in the cart's own output"
+  "notes": "4x2 VQ (mode 7), 256-entry YUV codebook per scene, Hydrogen Inflate; keyframes = scenes (each scene has its own codebook and LZ window restart, so every scene is a random-access point); seek_points = chapter entries in the stream header (6); fps = 59.7275/5 (header says 12); video kbps p99 from per-frame consumed input bytes (codebook charged to the scene's first frame), 1 s = 12-frame sliding window; cpu figures per 5-VBlank frame window, whole stream, instrumented mGBA; video verified as md5 of the VRAM lines the blit writes (160) at the blit's return; audio verified per 16458-sample block; 260 samples wrap (no clamp) in the cart's own output; video/audio/blit shares are fractions of all CPU time (converted from the perf run's fractions of busy time by multiplying with cpu_busy_mean)"
  },
  {
   "nointro": "Game Boy Advance Video - Sonic X - Volume 2 (USA) (Proto)",
@@ -93,12 +93,12 @@
   "cpu_busy_mean": 0.3068,
   "cpu_busy_p99": 0.5244,
   "cpu_busy_max": 0.5285,
-  "video_decode_share": 0.2499,
-  "audio_decode_share": 0.4351,
-  "blit_share": 0.3012,
+  "video_decode_share": 0.0767,
+  "audio_decode_share": 0.1335,
+  "blit_share": 0.0924,
   "late_or_dropped_frames": 0,
   "verified_video": "59/59",
   "verified_audio": "5/5",
-  "notes": "4x2 VQ (mode 7), 256-entry YUV codebook per scene, Hydrogen Inflate; keyframes = scenes (each scene has its own codebook and LZ window restart, so every scene is a random-access point); seek_points null: no chapter table (intro plays once at boot); fps = 59.7275/5 (header says 12); video kbps p99 from per-frame consumed input bytes (codebook charged to the scene's first frame), 1 s = 12-frame sliding window; cpu figures per 5-VBlank frame window, whole stream, instrumented mGBA; video verified as md5 of the VRAM lines the blit writes (160) at the blit's return; audio verified per 16458-sample block; 0 samples wrap (no clamp) in the cart's own output"
+  "notes": "4x2 VQ (mode 7), 256-entry YUV codebook per scene, Hydrogen Inflate; keyframes = scenes (each scene has its own codebook and LZ window restart, so every scene is a random-access point); seek_points null: no chapter table (intro plays once at boot); fps = 59.7275/5 (header says 12); video kbps p99 from per-frame consumed input bytes (codebook charged to the scene's first frame), 1 s = 12-frame sliding window; cpu figures per 5-VBlank frame window, whole stream, instrumented mGBA; video verified as md5 of the VRAM lines the blit writes (160) at the blit's return; audio verified per 16458-sample block; 0 samples wrap (no clamp) in the cart's own output; video/audio/blit shares are fractions of all CPU time (converted from the perf run's fractions of busy time by multiplying with cpu_busy_mean)"
  }
 ]

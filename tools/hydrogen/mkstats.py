@@ -48,7 +48,9 @@ def perf_summary(code, i):
 
 
 def main():
-    idx = json.load(open(os.path.join(os.environ.get('GBAV_ROMS') or os.path.join(HERE, '..', '..', 'roms'), 'index.json')))
+    import csv
+    with open(os.path.join(HERE, '..', '..', 'verify', 'carts.csv'), newline='') as f:
+        idx = {r['nointro']: r for r in csv.DictReader(f)}
     ver = json.load(open(f'{WORK}/verify_all.json'))
     titles = json.load(open(f'{WORK}/titles.json'))
     recs = []; psum = {}

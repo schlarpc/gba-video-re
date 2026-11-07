@@ -1,188 +1,150 @@
-# GBA Video *Shrek*: player and VX++ codec reverse engineering
+# GBA Video: the players and codecs of every Game Boy Advance Video cartridge
 
-This repository documents the video player on the Game Boy Advance Video cartridge
-*Shrek* (USA, Rev 6). The cartridge plays its movie with Actimagine's "VX++" codec, the
-predecessor of Mobiclip. The codec itself was first reverse engineered by quatric (see
-[Prior art and credits](#prior-art-and-credits)); this repository re-derives it from the
-cartridge code and adds the rest of the player. The repository has:
+Game Boy Advance Video cartridges (2004-2006) carried TV episodes and feature films on a GBA
+cartridge. Four different video systems from two companies are behind the 47 cartridges in the
+No-Intro database. This repository documents all of them from the cartridges' own code, and has
+a reference decoder for each that is **bit-exact on every frame and every audio block of every
+stream we could check** against the cartridge running in an emulator.
 
-- documentation of the player program;
-- a specification of the container, video and audio bitstreams, detailed enough to
-  reimplement them;
-- a C99 video decoder and a Python audio decoder, both bit-exact against the cartridge;
-- a cycle-level measurement of how much of the GBA the player uses.
+**The cart list is in [docs/carts.md](docs/carts.md)**: every No-Intro entry with its family,
+player build, streams, measurements and verification status.
 
-**No ROM data or movie content is included.** Bring your own dump:
-`shrek.gba`, sha1 `95d612057682b7b886441d387b167ba2493e49ef`
-(header "SHREK MOVIE", game code MSKE). Put it at the repository root.
+**No ROM data or video content is included.** You bring your own dumps; see
+[Bring your own ROM](#bring-your-own-rom).
 
-The same player and the same tools also cover the other VX++ cartridges in the table below.
-Their player program is byte-identical to Shrek's; see [Other cartridges](#other-cartridges).
+## The GBA Video ecosystem
 
-## Documents (`docs/`)
+| family | maker | cartridges | codec in one line |
+|---|---|---|---|
+| [**VX** (VX++ and VXGB)](docs/vx/README.md) | Actimagine (the predecessor of Mobiclip) | *Shrek*, *Shark Tale*, *Shrek 2* (Rev 5 and Rev 6), *Shrek + Shark Tale*: the 64 MiB movie carts | 16x16 macroblocks with a partition tree, integer-pel motion compensation from 3 references, H.264-style 4x4 transform; VLC (VX++) or CAVLC (VXGB) residuals; LPC/pulse audio |
+| [**FVMV**](docs/fvmv/README.md) | Actimagine codec and player, published by Nintendo | *Pokemon* Volumes 1-4 | pixel-domain block codec on RGB555: 8x8 cells split down to 1x2, copy / MV / colour-offset / fill / pattern modes, no transform; stripped GSM 06.10 audio |
+| [**Hydrogen**](docs/hydrogen/README.md) | Majesco (the "Hydrogen" library) | 13 retail carts (Nickelodeon, Cartoon Network, Sonic X, Yu-Gi-Oh!, ...) and the *Sonic X Vol 2* prototype | vector quantisation (1 byte per 4x4/4x3/3x3/4x2 block, 256-entry YCbCr codebook per segment) under a DEFLATE variant; Majesco ADPCM audio |
+| [**ADS**](docs/ads/README.md) | Majesco (the "ADS" engine) | 19 carts (Cartoon Network, Disney, Nicktoons, Dragon Ball GT, ...) plus 2 Hydrogen-engine carts that use the ADS codec | the same VQ layer under LZMA; Majesco ADPCM audio |
+| [**AM3**](docs/am3/README.md) (partial) | Actimagine | the Japanese Advance Movie Adapter with SmartMedia movie cards; not a cartridge, not in the DAT | only the adapter's firmware loader is documented; the player and codec are on the cards, and no card has been dumped |
 
-| File | Contents |
+The Hydrogen and ADS families share the VQ frame format and the ADPCM audio decoder; they differ
+in the container and the compression layer ([docs/majesco](docs/majesco/README.md)). The VX and
+FVMV players share Actimagine's GBA audio output stage (4x interpolation and noise shaping to
+65,536 Hz), but their codecs are unrelated. A comparison of all families is
+[Table 3 of docs/carts.md](docs/carts.md#table-3-families-compared).
+
+### Verification
+
+<!-- BEGIN gen_tables:summary -->
+| family | carts (No-Intro) | streams | hours | video frames verified | audio blocks verified | docs |
+|---|---|---|---|---|---|---|
+| [VX](docs/vx/README.md) | 7 of 7 | 10 | 11.9 | 299,137 / 299,137 | 5,055,621 / 5,469,139 | [vx](docs/vx/README.md) |
+| [FVMV](docs/fvmv/README.md) | 4 of 4 | 8 | 2.8 | 80,972 / 80,972 | 648,427 / 648,427 | [fvmv](docs/fvmv/README.md) |
+| [Hydrogen](docs/hydrogen/README.md) | 14 of 14 | 65 | 10.0 | 430,822 / 430,822 | 572,820 / 572,820 | [hydrogen](docs/hydrogen/README.md) |
+| [ADS](docs/ads/README.md) | 21 of 22 | 96 | 14.5 | 621,421 / 621,462 | 51,791 / 51,793 | [ads](docs/ads/README.md) |
+| **all** | 46 of 47 | 179 | 39.2 | 1,432,352 / 1,432,393 | 6,328,659 / 6,742,179 | [carts.md](docs/carts.md) |
+| [AM3](docs/am3/README.md) (adapter + SmartMedia cards) | not in the DAT | - | - | firmware loader only | - | [am3](docs/am3/README.md) |
+<!-- END gen_tables:summary -->
+
+For every stream, the ground truth is a whole-stream capture of the cartridge in a headless
+mGBA: the decoder's output buffer or the framebuffer the blit writes, hashed per frame, and the
+audio as the cartridge decodes it, hashed per block. Each family's manifests in
+[verify/](verify/) hold only those hashes. In addition, each family's decoder routines run in
+unicorn from a savestate, as an oracle for differential fuzzing of the reference decoders.
+The few counts that are not all-equal are explained in Table 1 of [docs/carts.md](docs/carts.md);
+none of them is a decoder error.
+
+## Repository layout
+
+| path | contents |
 |---|---|
-| [player.md](docs/player.md) | The player program. Covers the boot loader and its 3 programs, the 64 MiB "Matrix" bank-switching mapper and the memory map. Also the main loop, interrupts and timers, input, the on-screen display, the self-modifying YUV→RGB code, and the decoder call graph with addresses. |
-| [container.md](docs/container.md) | The VX++ header, chapter and seek tables, the layout of the video and audio streams, the A/V sync formula, and the audio codec (LPC/pulse). |
-| [video.md](docs/video.md) | The video bitstream: bit reader, frame header, macroblock and partition grammar, all 12 block modes, motion-vector prediction, motion compensation, intra predictors, and reference-frame rotation. |
-| [residual.md](docs/residual.md) | Residual coding: coded-block pattern, the coefficient VLC (the MPEG-4 intra TCOEF table), escape codes, zigzag scan, H.264-style dequantisation and the 4×4 inverse transform. |
-| [emu.md](docs/emu.md) | How the ground truth was made. Headless mGBA (libretro core driven through ctypes) captures decoded frames. A unicorn harness runs the cartridge's own decoder code one frame at a time. |
-| [vxgb.md](docs/vxgb.md) | VXGB, the older codec revision on the *Shark Tale* and *Shrek 2* Rev 5 cartridges: every difference from VX++ (no frame header, header QP, H.264 CAVLC residual tables behind a different syntax, persistent nC grids, player memory map). |
-| [perf.md](docs/perf.md) | CPU, memory, cartridge bus, DMA, display and audio use over the whole movie, measured with an instrumented mGBA. |
-| [prior-art.md](docs/prior-art.md) | The earlier public work on these formats, compared element by element with this repository, and a test of quatric's mobipeg decoder against our verified output. |
+| [docs/](docs/) | Per family (`vx`, `fvmv`, `hydrogen`, `sonicx2-proto`, `ads`, `majesco`, `am3`): `README.md` (overview, results, open issues), `player.md`, `format.md` (reimplementation grade), `perf.md`, `prior-art.md`, `features.md`, `stats.json`. [docs/carts.md](docs/carts.md) is the generated cart table |
+| `reference/<family>/` | The C99 reference decoders: `vx/decoder` (vxdec), `fvmv` (fvmvdec), `hydrogen` (hydec, hystat), `sonicx2-proto` (sx2dec), `ads` (adsdec), and `majesco` (VQ + ADPCM shared by Hydrogen and ADS). Tables that are not standard are generated from your ROM at build time |
+| `crates/` | The Rust workspace: `gbav-common` (decoder traits, md5, shared output stages), `gbav-rom` (cart identification, family classifier, player build id, embedded No-Intro table), one crate per codec (`gbav-vx`, `gbav-fvmv`, `gbav-majesco`, `gbav-hydrogen`, `gbav-ads`) and the `gbav` command line (`gbav-cli`) |
+| `tools/<family>/` | Python and emulator tooling: mGBA capture harnesses, unicorn oracles, fuzzers, profilers, verify and stats scripts. `tools/common/roms.py` finds your ROMs; `tools/gen_tables.py` regenerates the tables; `tools/mgba/` and the family `patch` files are mGBA patches |
+| `verify/<family>/` | Hash manifests `<cart>_<stream>.{frame,audio}_md5.csv.gz` (hashes only), and [verify/carts.csv](verify/carts.csv), which maps each cart's short id to its sha1 and No-Intro name |
 
-## Code
+## Build and verify
 
-| Directory | Contents |
-|---|---|
-| `decoder/` | C99 reference video decoder. `verify.py` checks it against the emulator hashes. `fuzz.py` and `test_residual.py` compare it with the cartridge's ARM code run in unicorn. |
-| `container/` | `vxdemux.py`: `info`, `walk`, `extract` and `wav` commands. `vxaudio.py`: bit-exact audio decoder. `vxvwalk.py`: a walker that parses the video grammar without decoding. |
-| `emu/` | The mGBA capture harness and the unicorn oracle. |
-| `perf/` | The mGBA instrumentation patch, a cycle-cost model, per-frame and per-tick CSVs (gzipped), and plots. |
-| `residual/` | Generators for the residual tables, and the check against the MPEG-4 codebook. |
-| `tools/` | `extract_images.py` copies the player's RAM images out of your ROM. The unicorn tools and the table generators need them. |
-| `decoder/` (VXGB) | `vxgb_residual.c` (CAVLC residuals), `gen_vxgb_tables.py` (copies the tables from a Rev 5 ROM at build time), `uc_oracle_vxgb.py`, `fuzz_vxgb.py`, `verify_vxgb.py`. |
-| `verify/` | Hashes only: the md5 of every decoded frame from the emulator, and the start bit of every frame. |
-
-## Quick start
-
-You need gcc and Python 3. The unicorn-based tests also need `unicorn` and `capstone`. The emulator harness needs the mGBA libretro core (`nix build nixpkgs#libretro.mgba`).
+The Rust workspace has no dependencies outside the standard library:
 
 ```sh
-cp /path/to/your/dump.gba shrek.gba
-make -C decoder                      # generates iwram_lut.h from the ROM, builds vxdec
-decoder/vxdec shrek.gba --start-frame 0 --count 70 --out out/   # raw YUV420 (+ --rgb)
-python3 decoder/verify.py --manifest --seek    # whole movie vs emulator hashes
-python3 container/vxdemux.py info
-python3 container/vxdemux.py wav audio.wav
+cargo build --release
+export GBAV_ROMS=/path/to/your/roms
+cargo test --release            # unit tests, plus every cart in $GBAV_ROMS against verify/
+target/release/gbav list ROM                       # family, player build, No-Intro name, streams
+target/release/gbav decode ROM --stream S --out DIR [--start-frame N --count M] [--png|--raw] [--wav]
+target/release/gbav verify $GBAV_ROMS              # whole-suite verification against verify/
+target/release/gbav stats ROM
 ```
 
-Other cartridges: every tool takes the ROM path and a stream, either as a VX++ header offset
-or as an index (`vxdec ROM --list` or `vxdemux.py info ROM` lists them):
+Without `GBAV_ROMS` the ROM-based tests skip themselves. The C reference decoders build with
+`make -C reference/<family>` (gcc, Python 3); each family README has its verify command, e.g.
+`python3 tools/fvmv/verify.py`. The unicorn oracles and fuzzers need the `unicorn` and
+`capstone` Python packages; the capture tools need the mGBA libretro core
+(`nix build nixpkgs#libretro.mgba`), and the profilers a core built with one of the patches.
 
-```sh
-decoder/vxdec combo.gba --stream 0x1eef800 --count 70 --y4m sharktale.y4m
-python3 decoder/verify.py --rom combo.gba --stream 1 --manifest --seek --audio
-python3 container/vxdemux.py wav combo.gba --stream 1 sharktale.wav
-python3 container/emu_audio.py --rom combo.gba --stream 1 --count all
-```
+To regenerate [docs/carts.md](docs/carts.md) and the summary above after changing a
+`stats.json` or the No-Intro table: `python3 tools/gen_tables.py` (`--check` in CI).
 
-## Verification status
+## Bring your own ROM
 
-- **Video:** decoded output matches the emulator for all 37,837 frames. The screen image matches for all 37,833 frames the cartridge draws. All 195 seek points decode correctly from a cold start. 3,530 random valid frames give the same result from the cartridge's ARM code (run in unicorn) and from the C decoder.
-- **Audio:** all 691,876 audio frames match the player's own ARM routine, run in unicorn.
+Nothing derived from a cartridge's bytes is in this repository except hashes: no ROM data, no
+decoded frames or audio, no decompiler output. Where a decoder needs a table that is not a
+published standard, it is read from your ROM at build time (C) or at run time (Rust).
 
-## Other cartridges
-
-| Cartridge | sha1 | Stream (header offset) | Size | Frames | Result |
-|---|---|---|---|---|---|
-| Shrek (USA) Rev 6 | `95d61205…` | 0x20200 movie | 240x160 | 37,837 | all match |
-| Shark Tale (USA) Rev 6 | `9bc5b607…` | 0x20200 movie | 240x160 | 37,697 | all match |
-| Shrek 2 (USA) Rev 6 | `3bcb4acc…` | 0x20200 movie | 240x160 | 38,816 | all match |
-| Shrek + Shark Tale (USA) Rev 5 | `f23390b7…` | 0x20200 Shrek | 240x112 | 34,874 | all match |
-| | | 0x1eef800 Shark Tale | 240x112 | 34,261 | all match |
-| | | 0x3dd3600 Shrek credits | 240x160 | 595 | all match |
-| | | 0x3e76a00 Shark Tale credits | 240x160 | 707 | all match |
-
-Full sha1s are in `verify/streams.json`. "All match" means all of these checks pass:
-
-- Every frame's decoder slot (YUV) matches the emulator. Every frame the cartridge draws
-  also matches on screen (BGR555).
-- Every seek point decodes correctly from a cold start, for up to 1,000 frames.
-- Every seek point's bit offset equals the frame start found by a continuous decode.
-- Every audio frame matches the player's ARM routine run in unicorn, for the whole stream.
-- Every audio block the cartridge plays matches the emulator.
-
-The Rev 5 *Shark Tale* and *Shrek 2* cartridges use the older "VXGB" format; see below and
-[docs/vxgb.md](docs/vxgb.md). quatric reports that *Shrek* (USA) (Rev 5) is VXGB too; we had no
-dump of it to check.
-
-The loader, all three programs and the player's EWRAM and IWRAM images are byte-identical on
-all four cartridges. Only the cartridge header and the menu data at ROM 0x20000 differ.
-The streams differ from Shrek in the following ways. The decoder needed only the last fix.
-
-- **240x112 picture (combo cartridge).** The player keeps four 0xF000-byte slots, stride
-  256. It decodes rows 0..111, and the rest of each slot keeps its initial value. The
-  blitter's height immediate is patched to 112, and the picture is centred at row 24. The
-  rows above and below it stay black.
-- **Short streams.** The two credits streams have one segment. Their chapter table holds
-  only frame 0, and header fields 0x24/0x30/0x34 are 0.
-- **QP.** Segment QPs are 33..37 instead of 30. *Shark Tale* also changes the QP inside a
-  segment twice.
-- **Encoder timing.** Some seek points' audio is one AFrame before or after
-  `floor((128f+1)/7)`, and two *Shark Tale* chapters start one frame after a seek point.
-  The player does not depend on either. It restarts both clocks at the seek point.
-- **Blit carries.** Above the clamp range, the clamp table reads code bytes that are larger
-  than 31. The blitter adds the colour fields together, so a large value carries into the
-  next field. Shrek never reaches this. Shark Tale does in 4 frames, and the combo cart's
-  Shark Tale in 30 frames. The decoder had modelled it with OR; it now adds.
-
-### VXGB (Rev 5 *Shark Tale* and *Shrek 2*)
-
-*Shark Tale* (USA) (Rev 5) and *Shrek 2* (USA) (Rev 5) use an older player whose streams start
-with `VXGB` (see [docs/vxgb.md](docs/vxgb.md)). vxdec detects the magic and decodes them;
-vxdemux, emu_audio and capture.py accept them too. Building VXGB support needs one Rev 5 dump
-for its code tables:
-
-```sh
-make -C decoder VXGB_ROM=../sharktale.gba      # or put sharktale.gba / shrek2.gba at the root
-decoder/vxdec sharktale.gba --count 70 --out out/
-python3 decoder/verify_vxgb.py sharktale.gba   # whole movie vs emulator hashes + every seek point
-```
-Without a VXGB ROM the build still works and decodes VX++ only.
-
-| cartridge | sha1 | status |
-|---|---|---|
-| Shark Tale (USA) (Rev 5) | `6128a476edb10e6839ac5bd2697e83b9b7a9b234` | video: all 37,697 frames match the emulator, all 191 seek points; audio: all 689,317 AFrames match the ARM routine |
-| Shrek 2 (USA) (Rev 5) | `5cd627e205020297b25d707131883be5850515fe` | video: all 38,816 frames match the emulator, all 197 seek points; audio: all 709,779 AFrames match the ARM routine (the emulated cart underruns its audio window late in the movie, see vxgb.md 9) |
+Put your dumps in one directory and set `GBAV_ROMS` to it. Name the files as No-Intro does
+(`Game Boy Advance Video - Shrek (USA) (Rev 6).gba`) or by the short ids in
+[verify/carts.csv](verify/carts.csv) (`shrek-rev6.gba`). `gbav list` tells you whether a dump
+matches a No-Intro entry. It also recognises an overdump whose first 32 MiB match an entry,
+such as the 64 MiB dumps of *Disney Channel Collection Vol 2 (Rev 5)*.
 
 ## Prior art and credits
 
-The VX++ and VXGB codecs were reverse engineered before this repository, by **quatric**:
+These formats were studied before this repository, above all by **quatric**:
 
-- [quatric/mobipeg](https://github.com/quatric/mobipeg) (August 2026): detailed notes
-  (`doc/gba_video_vxpp.md`, `doc/gba_video_vxgb.md`), Python tools, and a native FFmpeg
-  demuxer and decoder (`libavformat/gbavx.c`, `libavcodec/gbavxdec.c`, `libavcodec/vx.c`)
-  for both revisions;
 - ["The Mobiclip Formats"](https://gist.github.com/quatric/3e2f0caa5c22a9a8b24d9cf1ffdfe860),
-  section 8.3, a summary of that work.
+  section 8: VX/VX++/VXGB, FVMV, ADS and Hydrogen;
+- [quatric/mobipeg](https://github.com/quatric/mobipeg): notes (`doc/gba_video_vxpp.md`,
+  `gba_video_vxgb.md`, `gba_video_fvmv.md`, `gba_video_ads.md`) and FFmpeg-based demuxers and
+  decoders for all four cartridge families (`libavcodec/vx.c`, `vx_audio.c`, `fvmvdec.c`,
+  `majesco.c`, `adsgbavideo.c`, `adsgbaaudio.c`, `adslzma.c`, `libavformat/gbavx.c`,
+  `gbavideo.c`). For FVMV, mobipeg runs the cartridge's own ARM routines under unicorn instead
+  of reimplementing them.
 
-Their work already covered the container, the bitstream grammar, all prediction modes, MV
-prediction, the residual coding of both revisions, the transform and the audio codec. This
-repository's first grammar walker took its mode semantics from mobipeg. We built mobipeg and
-compared it with our verified output: its decoded pictures are identical on every frame of
-Shrek (Rev 6), Shrek 2 (Rev 6) and both VXGB movies. Two bugs in its frame wrapper break the other
-five streams (QPs above 31, and a QP change inside a segment); see
-[docs/prior-art.md](docs/prior-art.md).
+Their work covered the VX container, bitstream grammar, prediction modes, residual coding,
+transform and audio codec; the ADS and Hydrogen containers, LZMA parameters, VQ layout and
+audio; and the FVMV container. This repository's first VX grammar walker took its mode semantics
+from mobipeg; everything else was used as hints and checked against the cartridges' ARM code.
+mobipeg's VX decoder gives pictures identical to ours on four of the nine VX streams it was tested
+on; two bugs in its frame wrapper break the other five ([docs/vx/prior-art.md](docs/vx/prior-art.md)).
+What each family adds or corrects is listed element by element in its `prior-art.md`.
 
-The audio codec is the DS VX codec, implemented earlier by
-[CharlesVanEeckhout/actimagine](https://github.com/CharlesVanEeckhout/actimagine) and
-mobipeg's `vx_audio.c`. The DS VX video codec, which VXGB's residual coding shares, goes back to
-Gericom's FFmpeg decoder patch (2021) and the actimagine decoder. The VX++ coefficient code
-is the table in FFmpeg's `mobiclip.c` (Florian Nouwt, Adib Surani, Paul B Mahol). Earlier
-public notes: the [MultimediaWiki page](https://wiki.multimedia.cx/index.php/Actimagine_Video_Codec)
-on the DS codec, and Kostya Shishkov's
-[2025 note](https://codecs.multimedia.cx/2025/08/a-quick-glance-at-another-bunch-of-codecs/)
-on the `VXGB` magic. The emulator ground truth relies on mGBA's Matrix mapper emulation.
+Other prior art:
 
-What this repository adds:
+- VX audio is the DS VX codec, implemented earlier by
+  [CharlesVanEeckhout/actimagine](https://github.com/CharlesVanEeckhout/actimagine) and in
+  mobipeg's `vx_audio.c`; the DS VX video codec, whose residual coding VXGB shares, goes back to
+  Gericom's FFmpeg decoder patch (2021). The VX++ coefficient code is the table in FFmpeg's
+  `mobiclip.c` (Florian Nouwt, Adib Surani, Paul B Mahol).
+- The [MultimediaWiki page](https://wiki.multimedia.cx/index.php/Actimagine_Video_Codec) on the
+  DS codec, and Kostya Shishkov's
+  [2025 note](https://codecs.multimedia.cx/2025/08/a-quick-glance-at-another-bunch-of-codecs/)
+  on the `VXGB` magic.
+- AM3: shonumi's ["Edge of Emulation: Advance Movie Adapter"](https://shonumi.github.io/articles/art28.html),
+  his Advance Movie Adapter technical documentation and card dumping guide, and the AM3 support
+  in GBE+.
+- The emulator ground truth relies on [mGBA](https://mgba.io), including its emulation of the
+  Matrix mapper of the 64 MiB carts ("Dumping the Undumped", mgba.io, 2015), and on
+  [unicorn](https://www.unicorn-engine.org/) and capstone for the oracles.
+- The cart list follows the [No-Intro](https://www.no-intro.org) *Game Boy Advance (Video)* DAT.
 
-- the player program: boot loader, mapper use, memory map, timers and IRQs, A/V pacing,
-  input, on-screen display, and the self-modifying YUV->RGB blitter;
-- the display stage exactly: dither, 5-bit clamp table, and the carries when the table runs
-  into code bytes;
-- the GBA audio output stage, and the player's reset of the audio state at intra AFrames;
-- a frame header model that also handles QP changes inside a segment, the container
-  fields the earlier work left unexplained, and the exact per-frame A/V mapping;
-- smaller codec findings: the VX++ coefficient code is the MPEG-4 intra TCOEF table, the
-  exact bilinear fill on corner overflow, and the bit reader on over-long codes;
-- whole-movie verification of nine streams against an emulator and the cartridge's own ARM
-  code, and differential fuzzing against that code;
-- a cycle-level profile of the player.
+What this repository adds, across the families: the player programs (boot, memory maps, timers
+and interrupts, A/V pacing, blitters and output stages), reimplementation-grade specifications
+including the corner cases that make decoders bit-exact, whole-stream verification of 179
+streams against an emulator, differential fuzzing against the cartridges' own code, per-stream
+CPU and resource measurements, and an analysis of every player build.
 
 ## Licence
 
-The code and documentation are under the MIT licence; see [LICENSE](LICENSE). The one exception is
-`perf/patch/mgba-perf.patch`. It modifies mGBA, so it is under mGBA's licence, MPL-2.0.
-*Shrek* and the cartridge contents belong to their owners and are not included here.
+The code and documentation are under the MIT licence; see [LICENSE](LICENSE). The exceptions are
+the mGBA patches (`tools/mgba/*.patch`, `tools/vx/perf/patch/*.patch`,
+`tools/hydrogen/emu/mgba-cb-on-triage-prof.patch`, `tools/ads/emu/mgba-hooks.patch`): they
+modify mGBA and are under mGBA's licence, the Mozilla Public License 2.0. Each carries an SPDX
+header. The cartridges, their programs and their video content belong to their owners and are
+not included.
