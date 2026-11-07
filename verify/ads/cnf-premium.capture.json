@@ -1,0 +1,37 @@
+{
+ "logo majesco": {
+  "capture": "boot",
+  "first_blit": 0,
+  "frames": 59,
+  "audio_off": 0,
+  "audio_samples": 80918
+ },
+ "movie_1": {
+  "capture": "movie1",
+  "first_blit": 0,
+  "frames": 8197,
+  "audio_off": 0,
+  "audio_samples": 11242184
+ },
+ "movie_2": {
+  "capture": "movie2",
+  "first_blit": 0,
+  "frames": 5051,
+  "audio_off": 0,
+  "audio_samples": 6927446
+ },
+ "movie_3": {
+  "capture": "movie3",
+  "first_blit": 0,
+  "frames": 8226,
+  "audio_off": 0,
+  "audio_samples": 11281958
+ },
+ "movie_4": {
+  "capture": "movie4",
+  "first_blit": 0,
+  "frames": 5054,
+  "audio_off": 0,
+  "audio_samples": 6931560
+ }
+}

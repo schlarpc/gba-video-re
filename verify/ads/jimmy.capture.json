@@ -1,0 +1,44 @@
+{
+ "res0": {
+  "capture": "boot",
+  "first_blit": 0,
+  "frames": 59,
+  "audio_off": 2048,
+  "audio_samples": 80918
+ },
+ "res5": {
+  "capture": "boot",
+  "first_blit": 59,
+  "frames": 434,
+  "audio_off": 85014,
+  "audio_samples": 593859
+ },
+ "res1": {
+  "capture": "movie1",
+  "first_blit": 0,
+  "frames": 8037,
+  "audio_off": 2048,
+  "audio_samples": 11021374
+ },
+ "res2": {
+  "capture": "movie2",
+  "first_blit": 0,
+  "frames": 7803,
+  "audio_off": 2048,
+  "audio_samples": 10700443
+ },
+ "res3": {
+  "capture": "movie3",
+  "first_blit": 0,
+  "frames": 7850,
+  "audio_off": 4096,
+  "audio_samples": 10763532
+ },
+ "res4": {
+  "capture": "movie4",
+  "first_blit": 0,
+  "frames": 7981,
+  "audio_off": 2048,
+  "audio_samples": 10945941
+ }
+}

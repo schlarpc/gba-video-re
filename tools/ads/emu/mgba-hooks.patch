@@ -1,0 +1,89 @@
+SPDX-License-Identifier: MPL-2.0
+This patch modifies mGBA (https://github.com/mgba-emu/mgba) and is licensed under mGBA's
+licence, the Mozilla Public License 2.0, not under this repository's MIT licence.
+Build into tmp/mgba/ads-hooks/ (or set ADS_CORE).
+mGBA libretro core patch for the ADS tools (MPL-2.0, as mGBA). Apply to the nixpkgs libretro.mgba
+source, then: make -f Makefile.libretro. Adds: synchronous PC hooks (retro_bp_* + retro_bp_cb) used by
+capture.py, a cycle-weighted PC histogram (retro_prof_*, from the GBA Video triage), and 16 PC-bucket
+cycle/instruction counters (retro_bk_*) used by perf.py. All symbols are exported through link.T (retro_*).
+
+--- a/src/arm/arm.c	1969-12-31 16:00:01.000000000 -0800
++++ b/src/arm/arm.c	2026-11-07 01:28:19.885826174 -0800
+@@ -198,7 +198,51 @@
+ 	0x0000 // NV
+ };
+ 
+-static inline void ARMStep(struct ARMCore* cpu) {
++
++#include <stdint.h>
++uint64_t retro_prof_iwram[0x2000], retro_prof_ewram[0x10000], retro_prof_rom[0x200000], retro_prof_bios[0x1000], retro_prof_vram[0x6000], retro_prof_other[16];
++uint64_t retro_prof_thumb[16], retro_prof_arm[16];
++int retro_prof_on = 1;
++uint32_t retro_bp_addr[32]; uint32_t retro_bp_regs[32][17]; uint32_t retro_bp_hits[32]; int retro_bp_n = 0; uint32_t retro_bp_log[4096][18]; uint32_t retro_bp_logn = 0;
++typedef void (*retro_bp_cb_t)(int idx, int32_t* gprs);
++retro_bp_cb_t retro_bp_cb = 0;
++uint32_t retro_bp_cbmask = 0; /* bit i: call callback for bp i (otherwise just log) */
++static inline void bp_check(struct ARMCore* cpu, uint32_t pc) {
++	for (int i = 0; i < retro_bp_n; i++) if (retro_bp_addr[i] == pc) {
++		retro_bp_hits[i]++;
++		if ((retro_bp_cbmask >> i) & 1) { if (retro_bp_cb) retro_bp_cb(i, cpu->gprs); continue; }
++		for (int r = 0; r < 16; r++) retro_bp_regs[i][r] = cpu->gprs[r];
++		retro_bp_regs[i][16] = cpu->cpsr.packed;
++		if (retro_bp_logn < 4096) { uint32_t* L = retro_bp_log[retro_bp_logn++]; L[0] = i; for (int r = 0; r < 16; r++) L[1 + r] = cpu->gprs[r]; L[17] = cpu->cpsr.packed; }
++	}
++}
++uint8_t retro_bk_iw[0x4000], retro_bk_ew[0x20000], retro_bk_rom[0x200000];
++uint64_t retro_bk_cyc[16], retro_bk_ins[16];
++int retro_bk_on = 0;
++static inline void prof_add(uint32_t pc, int32_t c, int thumb) {
++	if (retro_bk_on) {
++		unsigned b = 15;
++		switch ((pc >> 24) & 15) {
++		case 2: b = retro_bk_ew[(pc & 0x3FFFF) >> 1]; break;
++		case 3: b = retro_bk_iw[(pc & 0x7FFF) >> 1]; break;
++		case 8: case 9: b = retro_bk_rom[(pc & 0x1FFFFFF) >> 4]; break;
++		case 0: b = 14; break;
++		}
++		retro_bk_cyc[b & 15] += c; retro_bk_ins[b & 15]++;
++	}
++	if (!retro_prof_on) return;
++	unsigned r = (pc >> 24) & 15;
++	if (thumb) retro_prof_thumb[r] += c; else retro_prof_arm[r] += c;
++	switch (r) {
++	case 0: if (pc < 0x4000) { retro_prof_bios[pc >> 2] += c; return; } break;
++	case 2: retro_prof_ewram[(pc & 0x3FFFF) >> 2] += c; return;
++	case 3: retro_prof_iwram[(pc & 0x7FFF) >> 2] += c; return;
++	case 6: retro_prof_vram[((pc & 0x1FFFF) % 0x18000) >> 2] += c; return;
++	case 8: case 9: retro_prof_rom[(pc & 0x1FFFFFF) >> 4] += c; return;
++	}
++	retro_prof_other[r] += c;
++}
++static inline void ARMStep0(struct ARMCore* cpu) {
+ 	uint32_t opcode = cpu->prefetch[0];
+ 	cpu->prefetch[0] = cpu->prefetch[1];
+ 	cpu->gprs[ARM_PC] += WORD_SIZE_ARM;
+@@ -217,7 +261,7 @@
+ 	instruction(cpu, opcode);
+ }
+ 
+-static inline void ThumbStep(struct ARMCore* cpu) {
++static inline void ThumbStep0(struct ARMCore* cpu) {
+ 	uint32_t opcode = cpu->prefetch[0];
+ 	cpu->prefetch[0] = cpu->prefetch[1];
+ 	cpu->gprs[ARM_PC] += WORD_SIZE_THUMB;
+@@ -226,6 +270,15 @@
+ 	instruction(cpu, opcode);
+ }
+ 
++
++static inline void ARMStep(struct ARMCore* cpu) {
++	uint32_t ppc = cpu->gprs[ARM_PC] - WORD_SIZE_ARM; int32_t c0 = cpu->cycles; if (retro_bp_n) bp_check(cpu, ppc);
++	ARMStep0(cpu); prof_add(ppc, cpu->cycles - c0, 0);
++}
++static inline void ThumbStep(struct ARMCore* cpu) {
++	uint32_t ppc = cpu->gprs[ARM_PC] - WORD_SIZE_THUMB; int32_t c0 = cpu->cycles; if (retro_bp_n) bp_check(cpu, ppc);
++	ThumbStep0(cpu); prof_add(ppc, cpu->cycles - c0, 1);
++}
+ void ARMRun(struct ARMCore* cpu) {
+ 	while (cpu->cycles >= cpu->nextEvent) {
+ 		cpu->irqh.processEvents(cpu);

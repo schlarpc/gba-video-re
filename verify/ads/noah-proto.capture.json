@@ -1,0 +1,30 @@
+{
+ "res0": {
+  "capture": "boot",
+  "first_blit": 0,
+  "frames": 59,
+  "audio_off": 2048,
+  "audio_samples": 80918
+ },
+ "res3": {
+  "capture": "boot",
+  "first_blit": 59,
+  "frames": 738,
+  "audio_off": 85014,
+  "audio_samples": 1010795
+ },
+ "res1": {
+  "capture": "movie1",
+  "first_blit": 0,
+  "frames": 13572,
+  "audio_off": 2048,
+  "audio_samples": 18609883
+ },
+ "res2": {
+  "capture": "movie2",
+  "first_blit": 0,
+  "frames": 13625,
+  "audio_off": 160454,
+  "audio_samples": 18683944
+ }
+}
