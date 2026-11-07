@@ -1,6 +1,7 @@
 //! Shared pieces for the GBA Video decoders: the decoder interface every codec crate
-//! implements, plus helpers (md5, GBA output stages) that codec crates may hoist here.
+//! implements, plus helpers (md5, gzip/DEFLATE, GBA output stages) shared by the codec crates.
 
+pub mod gzip;
 pub mod md5;
 
 use std::fmt;
