@@ -303,7 +303,13 @@ the T base by +-0x18/0x30 and changes the byte at 0x03000388).
 
 ## 10. Prior art
 
-The partition/mode structure and the bilinear intra match Actimagine's Mobiclip / VX family (quatric's
-"Mobiclip Formats" gist, FFmpeg `mobiclip.c`, quatric/mobipeg `vx.c`). Differences found here: integer-pel only;
-chroma MV = floor(mv/2); one MV predictor per MB shared by all sub-blocks; MV array stores the last MC sub-block's MV;
-intra 4x4 mode context restricted to the current block; DC availability by picture position only.
+quatric's mobipeg (`doc/gba_video_vxpp.md`, `libavcodec/vx.c`, August 2026) had already worked out
+this layer: the partition tree and modes, integer-pel MC with chroma MV = floor(mv/2), the median MV
+predictor and its packing, the reference ring, all intra predictors including the bisection fill
+and its parity rule, intra 4x4 mode coding with the border-9 context, and availability from the
+block offset. Its native decoder already behaves as described here for the MV predictor (one per MB)
+and the stored MV (the last MC sub-block's), though its notes do not state these rules. Everything
+in this document was re-derived from the ARM code and verified as in section 0. Additions here are
+the register-exact bit reader (section 1), the exact fill operations when a corner overflows (6.3),
+the memory outside the picture (3), and the clamp table, dither and carries of the RGB blit (8).
+See `docs/prior-art.md` for the full comparison.

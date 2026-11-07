@@ -2,8 +2,14 @@
 
 Status: **complete; the C decoder is bit-exact on both movies** (section 9).
 
-Two cartridges carry an older revision of the player and codec, with the magic `VXGB` instead
-of `VX++` at the stream header:
+Two cartridges we have carry an older revision of the player and codec, with the magic `VXGB`
+instead of `VX++` at the stream header. quatric reports a third, *Shrek* (USA) (Rev 5), which we
+could not check. quatric's mobipeg (`doc/gba_video_vxgb.md`, `libavcodec/vx.c`, August 2026)
+documented and implemented this revision first: no frame header, the header QP, CAVLC with the
+H.264 tables and the rounded-mean nC, the shared chroma nC, CBP32 and the H.264 zigzag. Its
+decoder is exact on every frame of both movies below (`docs/prior-art.md`). This document adds
+the player's memory map, the grid bookkeeping, a written comparison with H.264 CAVLC, the blit
+and audio details, and whole-movie verification.
 
 | cartridge | ROM sha1 | header | stream |
 |---|---|---|---|

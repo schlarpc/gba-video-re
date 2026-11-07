@@ -79,7 +79,7 @@ goes to `0x0203fffc`. The player context struct lives in VRAM at 0x06013e80.
 | 0x38 | -- | first video halfword; video bit 0 = H+0x38 bit 15 | yes **(code)** |
 
 Init also: fills the 4 reference frame slots (EWRAM 0x020032c8 + n*0xf000: 0xa000 B luma
-pitch 256 + 0x5000 B interleaved chroma) with 0x80, clears the 0x2000-byte PCM ring at VRAM
+pitch 256 + 0x5000 B interleaved chroma) with luma 0x00 and chroma 0x80, clears the 0x2000-byte PCM ring at VRAM
 0x06015f40, copies the 3124-byte audio codebook to VRAM 0x06015300, then seeks if
 start_frame != 0, pre-decodes up to 4 frames (`FUN_020002c4`), starts timers/DMA and enters the
 play loop.
@@ -153,8 +153,8 @@ mb(w,h): m = ue(v) (< 24); action = GBA_MODE_MAP[m] (map = 1,2,0,4,7,3,11,15,9,5
   len[3:0] level[8:4] run[14:9] last[15]; escapes on top-7-bits 0000011: +8 bits & level offset table
   LUT+0x2000, +9 bits & run offset table LUT+0x2080, or +9 bits then raw 1+6+12) until last
 ```
-Mode semantics and the CBP table come from mobipeg `libavcodec/vx.c` (written for this ROM) and
-match player.md sec. 0; the proof is the seek table: walking every frame from each seek point lands
+Mode semantics and the CBP table come from mobipeg `libavcodec/vx.c` (written for the Shrek + Shark
+Tale cart, whose player is identical) and match player.md sec. 0; the proof is the seek table: walking every frame from each seek point lands
 **exactly** on the next seek point's `video_bit` for all 194 interior segments, and the last segment
 ends at bit 427,274,067 = inside the last nonzero halfword (bits up to 427,274,080), followed only by zeros.
 Per-frame video sizes: 151..115,302 bits, mean 11,292 bits (1.4 KB/frame, ~79 kbit/s).
@@ -250,16 +250,22 @@ The menu passes the stream to the player as `0x08000000 + H` in 0x0203FFF8, and 
 stores `0x10000000 + H` in ctx+0x20. On the combo cart, each movie's menu has a "Credits"
 item that plays its 240x160 credits stream.
 
-## 7. Prior art (and where it was wrong for this ROM)
+## 7. Prior art (and where it differs)
 - quatric, "The Mobiclip Formats", sec. 8.3: https://gist.github.com/quatric/3e2f0caa5c22a9a8b24d9cf1ffdfe860
 - quatric/mobipeg `doc/gba_video_vxpp.md` (sec. 12, 13, 24), `doc/gba_video_vxgb.md`,
   `libavformat/gbavx.c`, `libavcodec/vx_audio.c`: https://github.com/quatric/mobipeg
 - CharlesVanEeckhout/actimagine (Python VX reference): https://github.com/CharlesVanEeckhout/actimagine
-- Their VX++ notes describe the multi-movie "Shrek + Shark Tale" cart (4 streams, 240x112); this
-  ROM (`SHREK MOVIE`, code `MSKE`) has one 240x160 stream. Header field names (0x10 "frame_rate",
-  0x14 "quantizer") are now pinned to code: 0x10 is a Timer-3 reload, 0x14/0x18/0x2c are unread.
-  Their "QP delta per segment + 1-bit marker per frame" is one `ue(v)` per frame (5.2).
-  Their audio decoder (DS-derived) is not hardware-exact across intra AFrames (section 6).
+- mobipeg already had the header layout, the seek table semantics, the segment structure, the
+  AFrame framing and the 128/7 AFrames-per-frame cadence. Its notes were written on the
+  "Shrek + Shark Tale" cart (4 streams); its demuxer handles every cart here.
+- Header fields are now pinned to code: 0x10 is a Timer-3 reload (mobipeg: "frame rate"),
+  0x14/0x18/0x2c are unread by the VX++ player, 0x30 is the last seek-point frame (mobipeg: same
+  as 0x24), 0x34 is the forward chapter-skip limit (mobipeg: unknown).
+- Their "QP delta per segment + 1-bit marker per frame" is one `ue(v)` per frame (5.2). The two
+  agree until a stream changes QP inside a segment; Shark Tale (Rev 6) does, and mobipeg loses
+  those two segments.
+- Their audio decoder (DS-derived) keeps the synthesis history across intra AFrames; the player
+  clears it (section 6). 364 of Shrek's AFrames differ for that reason. See `docs/prior-art.md`.
 
 ## 8. Validation status
 - `vxdemux.py walk`: seek table monotonic, pad words 0, all chapters on seek points,

@@ -282,7 +282,9 @@ parse-only grammar walker, which lands on all seek offsets) and, at every residu
 Result for N = 5000 frames: 378,672 residual calls, 0 mismatches. So the real stream never
 hits the overflow or invalid cases in section 7.
 
-Prior art (the quatric "Mobiclip Formats" gist §8.3 and quatric/mobipeg vx.c, found by the
-container agent): used only as a hint. Everything in this file was derived from and checked
-against the ARM. vxvwalk.py independently reads the same escape structure, the same
-LMAX/RMAX1 tables (LUT+0x2000/+0x2080) and the same CBP64 table.
+Prior art: quatric/mobipeg (`doc/gba_video_vxpp.md`, `libavcodec/vx.c`, August 2026) had
+already decoded this whole layer: the CBP64 table, the LUT format, the three escapes and their
+offset tables, the H.264 zigzag, the dequantisation and the IDCT, and its decoder applies them
+correctly (`docs/prior-art.md`). Everything in this file was re-derived from and checked against
+the ARM. New here: the identification of the code with the MPEG-4 intra TCOEF table and
+`mobiclip.c` (section 3), and the overflow behaviour (section 7).
