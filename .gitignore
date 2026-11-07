@@ -1,24 +1,34 @@
 # Bring your own ROM; never commit it
 *.gba
 *.zip
+roms/
 # Build outputs and generated files
-decoder/vxdec
-decoder/*.so
-decoder/iwram_lut.h
-decoder/vxgb_tables.h
-decoder_out/
-player/
+target/
+reference/*/**/*.so
+reference/*/**/*.o
+reference/vx/decoder/vxdec
+reference/vx/decoder/iwram_lut.h
+reference/vx/decoder/vxgb_tables.h
+reference/vx/player/
+reference/fvmv/fvmvdec
+reference/hydrogen/hydec
+reference/hydrogen/hystat
+reference/ads/adsdec
+reference/sonicx2-proto/sx2dec
+reference/sonicx2-proto/audio/sx2adec
 ref/
-# Captures and run outputs (may contain decoded movie content)
-emu/frames/
-emu/deep*/
-emu/audio/
-emu/manifest/
-emu/states/
-container/out/
-perf/full/
-perf/mgba-src/
+# Scratch, captures and run outputs (may contain decoded movie content)
+tmp/
+tools/vx/emu/frames/
+tools/vx/emu/deep*/
+tools/vx/emu/audio/
+tools/vx/emu/manifest/
+tools/vx/emu/states/
+tools/vx/perf/full/
+tools/vx/perf/mgba-src/
+tools/vx/perf/runs/
+tools/*/emu/sys/
 *.wav
 *.y4m
+*.state
 __pycache__/
-target/

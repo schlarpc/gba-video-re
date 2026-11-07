@@ -1,0 +1,86 @@
+SPDX-License-Identifier: MPL-2.0
+This patch modifies mGBA (https://github.com/mgba-emu/mgba) and is licensed under mGBA's
+licence, the Mozilla Public License 2.0, not under this repository's MIT licence.
+Applies with 'patch -p1' on top of tools/vx/perf/patch/mgba-perf.patch. Adds the light event log (LUT flag 0x2000) used by tools/vx/perf/vx_perf.py.
+
+--- a/include/mgba/internal/gba/perf.h	2026-11-06 13:04:22.478498111 -0800
++++ b/include/mgba/internal/gba/perf.h	2026-11-06 23:28:23.266586019 -0800
+@@ -12,6 +12,14 @@
+ /* LUT entry: bits 0-5 bucket, bits 8-10 ctx-set (value+1, 0 = none), bit 11 pop ctx, bit 12 snapshot event */
+ #define PERF_F_POP 0x0800
+ #define PERF_F_EVENT 0x1000
++#define PERF_F_LEV 0x2000   /* light event: pc, time, 16 words of VRAM (vx suite) */
++#define PERF_NLEV (1 << 16)
++
++struct PerfLev {
++	uint32_t pc, ctx;
++	uint64_t now;
++	uint32_t w[16];
++};
+ 
+ struct PerfCounters {
+ 	uint64_t now;                /* global cycle time at snapshot */
+--- a/src/arm/arm.c	2026-11-06 13:00:05.383150051 -0800
++++ b/src/arm/arm.c	2026-11-06 23:28:23.247585839 -0800
+@@ -213,7 +213,7 @@
+ static inline void ARMStep(struct ARMCore* cpu) {
+ 	uint32_t ppc = cpu->gprs[ARM_PC] - WORD_SIZE_ARM;
+ 	uint16_t pe = perf_lut(ppc);
+-	if (UNLIKELY(pe & 0x1F00)) perf_event(cpu, ppc, pe);
++	if (UNLIKELY(pe & 0x3F00)) perf_event(cpu, ppc, pe);
+ 	perf_key = perf_ctx * PERF_NB + (pe & 63);
+ 	int32_t pc0 = cpu->cycles;
+ 	uint32_t pseq = cpu->memory.activeSeqCycles32;
+@@ -241,7 +241,7 @@
+ static inline void ThumbStep(struct ARMCore* cpu) {
+ 	uint32_t ppc = cpu->gprs[ARM_PC] - WORD_SIZE_THUMB;
+ 	uint16_t pe = perf_lut(ppc);
+-	if (UNLIKELY(pe & 0x1F00)) perf_event(cpu, ppc, pe);
++	if (UNLIKELY(pe & 0x3F00)) perf_event(cpu, ppc, pe);
+ 	perf_key = perf_ctx * PERF_NB + (pe & 63);
+ 	int32_t pc0 = cpu->cycles;
+ 	uint32_t pseq = cpu->memory.activeSeqCycles16;
+--- a/src/gba/perf.c	2026-11-06 13:15:55.593163498 -0800
++++ b/src/gba/perf.c	2026-11-06 23:28:23.267586027 -0800
+@@ -13,8 +13,24 @@
+ static uint32_t snap_w, snap_r;
+ static uint32_t snap_lost;
+ 
++static struct PerfLev levs[PERF_NLEV];
++static uint32_t lev_w, lev_r, lev_lost;
++static uint32_t lev_off[16];
++
+ void perf_event(void* vcpu, uint32_t pc, uint16_t e) {
+ 	struct ARMCore* cpu = vcpu;
++	if (e & PERF_F_LEV) {
++		struct GBA* gba = (struct GBA*) cpu->master;
++		if (lev_w - lev_r >= PERF_NLEV) { ++lev_lost; }
++		else {
++			struct PerfLev* l = &levs[lev_w % PERF_NLEV];
++			l->pc = pc; l->ctx = perf_ctx;
++			l->now = perfC.elapsed + (int64_t) cpu->cycles;
++			const uint8_t* v = (const uint8_t*) gba->video.vram;
++			for (int i = 0; i < 16; ++i) { uint32_t o = lev_off[i] & 0x1FFFC; memcpy(&l->w[i], v + o, 4); }
++			++lev_w;
++		}
++	}
+ 	if (e & PERF_F_EVENT) {
+ 		struct GBA* gba = (struct GBA*) cpu->master;
+ 		if (snap_w - snap_r >= PERF_NSNAP) { ++snap_lost; }
+@@ -138,3 +154,16 @@
+ 	perf_acct(cpu, address, 4 * n, cycleCounter, b, n, 1);
+ 	return v;
+ }
++
++/* light events (vx suite) */
++void retro_perf_lev_off(int i, uint32_t off) { if (i >= 0 && i < 16) lev_off[i] = off; }
++int retro_perf_lev_size(void) { return sizeof(struct PerfLev); }
++int retro_perf_lev_drain(void* buf, int max) {
++	int n = 0;
++	while (lev_r != lev_w && n < max) {
++		memcpy((char*) buf + n * sizeof(struct PerfLev), &levs[lev_r % PERF_NLEV], sizeof(struct PerfLev));
++		++lev_r; ++n;
++	}
++	return n;
++}
++uint32_t retro_perf_lev_lost(void) { return lev_lost; }
