@@ -1,0 +1,2 @@
+family,short_id,stream,kind,first,last,reason
+vx,shrek2-rev5,20200,audio,296039,,"the emulated cart loses an audio refill request (docs/vx/perf.md P2.4) and plays misaligned AFrames from this block on; the decoder's blocks are the intended stream"

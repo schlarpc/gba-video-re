@@ -1,0 +1,11 @@
+[package]
+name = "gbav-testkit"
+version = "0.1.0"
+description = "Test support for the gbav crates: ROM and manifest lookup, env gates, PRNG, the C reference decoders as shared libraries"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+gbav-common = { path = "../gbav-common" }

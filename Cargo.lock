@@ -50,6 +50,13 @@ name = "gbav-rom"
 version = "0.1.0"
 
 [[package]]
+name = "gbav-testkit"
+version = "0.1.0"
+dependencies = [
+ "gbav-common",
+]
+
+[[package]]
 name = "gbav-vx"
 version = "0.1.0"
 dependencies = [

@@ -105,6 +105,23 @@ impl Md5 {
     }
 }
 
+impl Md5 {
+    /// Feed a u16 slice as little-endian bytes (the BGR555 framebuffer form).
+    pub fn update_u16(&mut self, px: &[u16]) {
+        let mut tmp = [0u8; 512];
+        for c in px.chunks(256) {
+            for (i, v) in c.iter().enumerate() {
+                tmp[2 * i..2 * i + 2].copy_from_slice(&v.to_le_bytes());
+            }
+            self.update(&tmp[..2 * c.len()]);
+        }
+    }
+    /// Lowercase hex of the digest.
+    pub fn finalize_hex(self) -> String {
+        to_hex(&self.finalize())
+    }
+}
+
 /// MD5 digest of `data`.
 pub fn digest(data: &[u8]) -> [u8; 16] {
     let mut m = Md5::new();
@@ -126,6 +143,13 @@ pub fn to_hex(d: &[u8; 16]) -> String {
 /// Lowercase hex MD5 of `data`, as written in the manifests.
 pub fn hex(data: &[u8]) -> String {
     to_hex(&digest(data))
+}
+
+/// Lowercase hex MD5 of a u16 slice as little-endian bytes.
+pub fn hex_u16(px: &[u16]) -> String {
+    let mut m = Md5::new();
+    m.update_u16(px);
+    m.finalize_hex()
 }
 
 #[cfg(test)]

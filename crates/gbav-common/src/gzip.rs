@@ -308,6 +308,16 @@ pub fn zlib_stored(data: &[u8]) -> Vec<u8> {
     z
 }
 
+/// A gzip file made of stored (uncompressed) DEFLATE blocks.
+pub fn gzip_stored(data: &[u8]) -> Vec<u8> {
+    let z = zlib_stored(data);
+    let mut g = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff];
+    g.extend_from_slice(&z[2..z.len() - 4]);
+    g.extend_from_slice(&crc32(0, data).to_le_bytes());
+    g.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    g
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,6 +9,7 @@ members = [
     "crates/gbav-hydrogen",
     "crates/gbav-ads",
     "crates/gbav-cli",
+    "crates/gbav-testkit",
 ]
 
 [workspace.package]
