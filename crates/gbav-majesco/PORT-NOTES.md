@@ -16,8 +16,7 @@ Pure Rust, no dependencies outside the workspace, no `unsafe` outside the test h
 - Stream ids: Hydrogen = container index in ROM order (`"0"` is the logo). ADS = SFCD member
   name with spaces as underscores (`movie_1`, `logo_majesco`, `jingle`), or `res<N>` on the two
   Hydrogen-packaged LZMA carts. These are the ADS manifest names; Hydrogen manifests are
-  `<short>_<index>`, except the Sonic X Vol 2 proto's (`sx2p_ep103`, `sx2p_ep104`, `sx2p_intro`
-  for indices 0, 1, 2).
+  `<short>_<index>`, the Sonic X Vol 2 proto's too (`sx2p_0` = Episode 103, `sx2p_1` = Episode 104, `sx2p_2` = intro).
 - Decoders keep the shared ROM (`Rom` = `Arc<[u8]>`, via `ArcSlice`); no stream or track bytes are
   copied. `StreamInfo::chapters` comes from the chapter records (segment / chunk start + name).
 - `Frame::manifest_bytes` = the framebuffer lines the blit wrote: all 160 lines (row 159 filled

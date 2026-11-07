@@ -24,7 +24,7 @@ same places, so it is their common ancestor.
 `reference/hydrogen/hydec` decodes the proto bit-exactly as it is: its full 240x160 frames are
 identical to the independent `reference/sonicx2-proto/sx2dec` on all 28,173 frames (ep103 13,828,
 ep104 14,286, intro 59), and both match the cart. `tools/sonicx2-proto/verify.py ROM --hydec PATH`
-checks hydec against the cart-captured manifests `verify/hydrogen/sx2p_{intro,ep103,ep104}.frame_md5.csv.gz`
+checks hydec against the cart-captured manifests `verify/hydrogen/sx2p_{0,1,2}.frame_md5.csv.gz`
 (md5 of the VRAM lines the blit writes: 159 for mode 5, 160 for mode 7; captured at the blit's
 return with the OSD counter ctx+0x1614 zeroed so the "Play" text is not drawn into the bitmap).
 
@@ -91,7 +91,7 @@ such streams.
   ARM loop apart from the clamp) is instruction-identical to Sonic X Vol 1; only seek/resume
   (0x0800688c) differs.
 - Ground truth: per-block md5 of the cart's decoded output in
-  `verify/hydrogen/sx2p_{intro,ep103,ep104}.audio_md5.csv.gz`. The last block holds only the samples
+  `verify/hydrogen/sx2p_{0,1,2}.audio_md5.csv.gz`. The last block holds only the samples
   the cart decodes: it stops about 4,100 samples before the end of the data when the video ends.
 
 ## 5. Player and engine

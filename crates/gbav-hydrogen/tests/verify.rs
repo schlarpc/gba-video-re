@@ -12,9 +12,6 @@ use gbav_hydrogen::{Cart, Hydrogen};
 use gbav_majesco::audio::FRAME_SAMPLES_X16;
 use gbav_testkit as tk;
 
-/// Manifest stream names of the prototype, in container order.
-const PROTO_STREAMS: &[&str] = &["ep103", "ep104", "intro"];
-
 #[derive(Default, Debug, Clone)]
 struct Tally {
     streams: usize,
@@ -181,8 +178,7 @@ fn verify_cart(short: &str) -> Tally {
     }
     for i in 0..cart.streams.len() {
         let id = i.to_string();
-        let mname = if short == "sx2p" { PROTO_STREAMS[i].to_string() } else { id.clone() };
-        verify_stream(&rom, short, &id, &mname, &mut t);
+        verify_stream(&rom, short, &id, &id, &mut t);
     }
     t
 }

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Verify the Sonic X Vol 2 prototype decoders against the hash manifests captured from the cart.
 
-  video: sx2dec --md5 for every stream vs verify/hydrogen/sx2p_<stream>.frame_md5.csv.gz
+  video: sx2dec --md5 for every stream vs verify/hydrogen/sx2p_<index>.frame_md5.csv.gz (0 = ep103, 1 = ep104, 2 = intro)
          (md5 of the VRAM bitmap rows the VQ blit writes, captured in mGBA at the blit's return)
-  audio: delegated to audio/verify_audio.py (verify/hydrogen/sx2p_<stream>.audio_md5.csv.gz)
+  audio: delegated to audio/verify_audio.py (verify/hydrogen/sx2p_<index>.audio_md5.csv.gz)
 
 usage: verify.py ROM [--video-only | --audio-only] [--hydec PATH] [--json OUT]
   --hydec PATH  verify the shared Hydrogen-family decoder (reference/hydrogen/hydec) instead of
@@ -44,7 +44,7 @@ def verify_video(rom, hydec=None):
         subprocess.check_call(['make', '-C', os.path.dirname(exe), 'sx2dec'])
     res = {}
     for idx, name in STREAMS:
-        man = os.path.join(HERE, '..', '..', 'verify', 'hydrogen', f'sx2p_{name}.frame_md5.csv.gz')
+        man = os.path.join(HERE, '..', '..', 'verify', 'hydrogen', f'sx2p_{idx}.frame_md5.csv.gz')
         rows = list(csv.DictReader(gzip.open(man, 'rt')))
         want = [r['vram_md5'] for r in rows]
         if hydec:

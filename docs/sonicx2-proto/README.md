@@ -20,7 +20,7 @@ complete: it ends at the end of the IWRAM image.
 Video is bit-exact on every frame with both `reference/sonicx2-proto/sx2dec` and the Hydrogen
 family decoder `reference/hydrogen/hydec` (their outputs are byte-identical). Audio is bit-exact on
 every block with `reference/sonicx2-proto/audio/sx2adec`. The manifests are
-`verify/hydrogen/sx2p_{intro,ep103,ep104}.{frame,audio}_md5.csv.gz`.
+`verify/hydrogen/sx2p_{0,1,2}.*` (stream 0 = Episode 103, 1 = Episode 104, 2 = the intro; the indices are the container order that `gbav` uses).
 
 ## Documents
 
