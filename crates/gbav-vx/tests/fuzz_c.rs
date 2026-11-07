@@ -64,6 +64,10 @@ fn fuzz_against_c() {
             total += 1;
             with_err += (want_err > 0) as usize;
             if got_md5 != want_md5 || got_bit != want_bit || got_err != want_err {
+                if let Some(d) = std::env::var_os("GBAV_VX_FUZZ_DUMP") {
+                    let name = std::path::Path::new(path).file_stem().unwrap().to_string_lossy().to_string();
+                    std::fs::write(std::path::Path::new(&d).join(format!("{name}_{case}.rust.ewram")), &core.ew[..]).unwrap();
+                }
                 fails.push(format!(
                     "{path} case {case} ({}, {nframes} frames): ewram {} bits {got_bit}/{want_bit} err {got_err}/{want_err}",
                     if vxgb == 1 { "VXGB" } else { "VX++" },

@@ -98,6 +98,9 @@ pub struct Core {
     pub stats: Stats,
     /// Optional per-MB start bit positions of the last frame.
     pub mb_bits: Option<Vec<u32>>,
+    /// Optional block trace (w, h, yoff, mode, bit position after the mode code), the
+    /// equivalent of vxdec's `--trace` "blk" lines.
+    pub trace: Option<Vec<[u32; 5]>>,
 }
 
 #[inline(always)]
@@ -155,6 +158,7 @@ impl Core {
             hdr_q: 0,
             stats: Stats::default(),
             mb_bits: None,
+            trace: None,
         };
         c.reset(qp, stream);
         c
@@ -719,6 +723,9 @@ impl Core {
     /// The MV predictor (pmx, pmy) is the MB's median predictor for all sub-blocks.
     fn block(&mut self, bs: &mut Bits, w: u32, h: u32, pmx: i32, pmy: i32) {
         let mut m = bs.ue();
+        if let Some(t) = self.trace.as_mut() {
+            t.push([w, h, self.yoff, m, bs.bitpos()]);
+        }
         let big = w >= 8 && h >= 8;
         if m >= if big { 24 } else { 12 } {
             self.stats.err += 1;

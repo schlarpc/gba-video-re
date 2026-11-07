@@ -114,9 +114,10 @@ impl<'a> Bits<'a> {
         let b = if z >= 32 { 0 } else { self.buf << z };
         let b = b << 1; // the '1'
         let mut v = if z != 0 { b.wrapping_shr(32 - z) } else { 0 };
-        // C: (1u << z) - 1 with z == 32 behaves as x86 (shift count mod 32); the reference
-        // decoder only reaches it on an all-zero buffer.
-        v = v.wrapping_add(1u32.wrapping_shl(z).wrapping_sub(1));
+        // (1 << z) - 1 in exact arithmetic, so an all-zero buffer (z == 32, only reachable on
+        // garbage) gives 0xffffffff. In bits.h this is `(1u << 32) - 1`, undefined in C; the
+        // gcc -O2 reference build yields 0xffffffff too (found by the differential fuzz).
+        v = v.wrapping_add(((1u64 << z) - 1) as u32);
         self.buf = if z >= 32 { 0 } else { b << z };
         self.cnt -= 2 * z as i32 + 1;
         if self.cnt < 0 {

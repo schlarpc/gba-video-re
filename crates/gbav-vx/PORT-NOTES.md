@@ -123,9 +123,12 @@ index) fails 34 of 40 cases, so the comparison has teeth. Results: see below.
 
 - The C decoder only counts decoder errors; `VxVideo` returns `Err(Undefined)` for a frame
   that raised one (strict by default), `Core` keeps counting like the C.
-- C undefined behaviour reached only by garbage input (`1u << 32` in ue(v) on an all-zero
-  buffer, shift-by-32 in the sign test) is modelled as x86 does it (shift count mod 32), so
-  the fuzz comparison holds on those paths too.
+- C undefined behaviour reached only by garbage input: ue(v) on an all-zero buffer computes
+  `(1u << 32) - 1` in bits.h. The gcc -O2 reference build yields 0xffffffff (the value in
+  exact arithmetic), and so does the port; the differential fuzz found this (3 of 4040
+  cases before the fix, all with long zero runs in a garbage tail). What the ARM does there
+  is not modelled by either decoder. A shift-by-32 in the VX++ sign test cannot happen with
+  the ROM's LUT (no zero-length entries).
 - Audio cold start at a seek point uses a fresh decoder state. The cart does not reset its
   sample buffers on a seek, so the first blocks after a seek on hardware depend on what
   played before; there is no manifest for that, and the trait has no audio seek anyway.
