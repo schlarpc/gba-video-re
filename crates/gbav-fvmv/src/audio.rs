@@ -81,7 +81,10 @@ struct Tables {
 fn tables() -> &'static Tables {
     static T: OnceLock<Tables> = OnceLock::new();
     T.get_or_init(|| {
-        let mut t = Tables { rp: [[0; 64]; 8], xm: [[0; 8]; 64] };
+        let mut t = Tables {
+            rp: [[0; 64]; 8],
+            xm: [[0; 8]; 64],
+        };
         for i in 0..8 {
             for c in 0..NLEV[i] {
                 t.rp[i][c] = lar_to_rp(i, c as i32);
@@ -175,7 +178,10 @@ pub struct AudioState {
 
 impl AudioState {
     pub const fn new() -> Self {
-        AudioState { synth: Synth::new(), output: OutputStage::new() }
+        AudioState {
+            synth: Synth::new(),
+            output: OutputStage::new(),
+        }
     }
 
     /// Decode one block: the int32 synthesis output (first audio manifest hash) and the

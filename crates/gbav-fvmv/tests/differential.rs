@@ -40,8 +40,8 @@ impl CRef {
         // one binary per test thread: the tests run in parallel and must not race on it
         static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let k = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let out: PathBuf =
-            Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("fvmv_cref_harness_{}_{k}", std::process::id()));
+        let out: PathBuf = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("fvmv_cref_harness_{}_{k}", std::process::id()));
         let here = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cref/harness.c");
         let st = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".into()))
             .args(["-O2", "-std=c99", "-I"])
@@ -54,7 +54,11 @@ impl CRef {
             .status()
             .expect("run cc");
         assert!(st.success(), "building the C harness failed");
-        let mut child = Command::new(&out).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut child = Command::new(&out)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         let w = BufWriter::with_capacity(1 << 20, child.stdin.take().unwrap());
         let r = BufReader::with_capacity(1 << 20, child.stdout.take().unwrap());
         CRef { child, w, r }
@@ -67,10 +71,20 @@ impl CRef {
     }
 
     fn i32s(&mut self, n: usize) -> Vec<i32> {
-        self.read(4 * n).chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap())).collect()
+        self.read(4 * n)
+            .chunks_exact(4)
+            .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
     }
 
-    fn video(&mut self, out: u32, refb: u32, vlen: u32, data: &[u8], mem: &[u8]) -> (i32, Vec<u8>, Vec<u64>) {
+    fn video(
+        &mut self,
+        out: u32,
+        refb: u32,
+        vlen: u32,
+        data: &[u8],
+        mem: &[u8],
+    ) -> (i32, Vec<u8>, Vec<u64>) {
         self.w.write_all(b"V").unwrap();
         for x in [out, refb, vlen, data.len() as u32] {
             self.w.write_all(&x.to_le_bytes()).unwrap();
@@ -80,7 +94,11 @@ impl CRef {
         self.w.flush().unwrap();
         let rc = self.i32s(1)[0];
         let ew = self.read(EWRAM_SIZE);
-        let st = self.read(143 * 8).chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect();
+        let st = self
+            .read(143 * 8)
+            .chunks_exact(8)
+            .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
+            .collect();
         (rc, ew, st)
     }
 
@@ -93,7 +111,9 @@ impl CRef {
 
     fn output(&mut self, reset: bool, input: &[i32]) -> (Vec<u8>, Vec<i32>) {
         self.w.write_all(&[b'O', reset as u8]).unwrap();
-        self.w.write_all(&(input.len() as u32).to_le_bytes()).unwrap();
+        self.w
+            .write_all(&(input.len() as u32).to_le_bytes())
+            .unwrap();
         for x in input {
             self.w.write_all(&x.to_le_bytes()).unwrap();
         }
@@ -111,7 +131,16 @@ impl Drop for CRef {
 
 fn flat_stats(s: &Stats) -> Vec<u64> {
     let mut v: Vec<u64> = s.mode_count.iter().flatten().copied().collect();
-    v.extend([s.oob_reads, s.oob_writes, s.offpic_reads, s.offpic_writes, s.err, s.overrun, s.mv_xwrap, s.mv_yout]);
+    v.extend([
+        s.oob_reads,
+        s.oob_writes,
+        s.offpic_reads,
+        s.offpic_writes,
+        s.err,
+        s.overrun,
+        s.mv_xwrap,
+        s.mv_yout,
+    ]);
     v.extend(s.mv_yout_kind);
     v.extend([s.edge_x0, s.edge_y0, s.inexact]);
     v
@@ -119,7 +148,9 @@ fn flat_stats(s: &Stats) -> Vec<u64> {
 
 /// (video payload, audio blocks) of the real frames of every FVMV stream in GBAV_ROMS.
 fn real_frames() -> Vec<(Vec<u8>, Vec<u8>)> {
-    let Some(dir) = common::roms_dir() else { return Vec::new() };
+    let Some(dir) = common::roms_dir() else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for (_, path) in common::fvmv_carts(&dir) {
         let rom = std::fs::read(path).unwrap();
@@ -160,7 +191,9 @@ fn cref() -> Option<CRef> {
     match std::env::var_os("GBAV_FVMV_CREF") {
         Some(p) => Some(CRef::build(Path::new(&p))),
         None => {
-            eprintln!("skipping: set GBAV_FVMV_CREF to the directory holding fvmvdec.c / fvmvaudio.c");
+            eprintln!(
+                "skipping: set GBAV_FVMV_CREF to the directory holding fvmvdec.c / fvmvaudio.c"
+            );
             None
         }
     }
@@ -176,12 +209,19 @@ fn video_matches_c() {
     let n = common::env_count("GBAV_FVMV_FUZZ_VIDEO", 3000);
     let real = real_frames();
     let mut rng = Rng(seed());
-    let (lo, hi) = (EWRAM_BASE + 8 * 480 + 2, EWRAM_BASE + EWRAM_SIZE as u32 - 0x12c00 - 8 * 480 - 2);
+    let (lo, hi) = (
+        EWRAM_BASE + 8 * 480 + 2,
+        EWRAM_BASE + EWRAM_SIZE as u32 - 0x12c00 - 8 * 480 - 2,
+    );
     let mut res = std::collections::BTreeMap::<&str, (usize, usize)>::new();
     let mut modes = std::collections::BTreeSet::new();
     let mut bad_examples = Vec::new();
     for i in 0..n {
-        let kind = if real.is_empty() { "random" } else { ["random", "mutate", "real"][i % 3] };
+        let kind = if real.is_empty() {
+            "random"
+        } else {
+            ["random", "mutate", "real"][i % 3]
+        };
         let payload = match kind {
             "random" => random_payload(&mut rng),
             k => {
@@ -206,7 +246,10 @@ fn video_matches_c() {
             let sel = rng.range(0, 2) as u32;
             (Decoder::buffer_addr(sel), Decoder::buffer_addr(sel ^ 1))
         } else {
-            ((rng.range(lo as u64, hi as u64) as u32) & !3, (rng.range(lo as u64, hi as u64) as u32) & !1)
+            (
+                (rng.range(lo as u64, hi as u64) as u32) & !3,
+                (rng.range(lo as u64, hi as u64) as u32) & !1,
+            )
         };
         let mem = rng.bytes(EWRAM_SIZE);
         let mut data = payload.clone();
@@ -244,7 +287,10 @@ fn video_matches_c() {
     for (k, (g, b)) in &res {
         println!("video {k}: {g} ok, {b} mismatch");
     }
-    println!("video coverage: (size, mode) pairs hit: {} of 88", modes.len());
+    println!(
+        "video coverage: (size, mode) pairs hit: {} of 88",
+        modes.len()
+    );
     assert!(bad_examples.is_empty(), "{bad_examples:#?}");
     if n >= 300 {
         assert_eq!(modes.len(), 88, "fuzz did not hit every (size, mode) pair");
@@ -259,7 +305,11 @@ fn audio_matches_c() {
     let real: Vec<Vec<u8>> = real_frames()
         .into_iter()
         .take(4000)
-        .flat_map(|(_, a)| a.chunks_exact(BLOCK_BYTES).map(<[u8]>::to_vec).collect::<Vec<_>>())
+        .flat_map(|(_, a)| {
+            a.chunks_exact(BLOCK_BYTES)
+                .map(<[u8]>::to_vec)
+                .collect::<Vec<_>>()
+        })
         .collect();
     let random: Vec<Vec<u8>> = (0..n).map(|_| rng.bytes(BLOCK_BYTES)).collect();
     for (name, blocks) in [("random", &random), ("real", &real)] {
@@ -276,7 +326,12 @@ fn audio_matches_c() {
             if syn_c != syn || pcm_c != pcm_r || state_c != state_r {
                 bad += 1;
                 if bad < 5 {
-                    println!("audio {name} block {i}: synth {} pcm {} state {}", syn_c == syn, pcm_c == pcm_r, state_c == state_r);
+                    println!(
+                        "audio {name} block {i}: synth {} pcm {} state {}",
+                        syn_c == syn,
+                        pcm_c == pcm_r,
+                        state_c == state_r
+                    );
                 }
             }
         }

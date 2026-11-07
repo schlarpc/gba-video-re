@@ -35,7 +35,9 @@ pub mod mode {
     pub const FILL: usize = 5;
     pub const PATTERN: usize = 6;
     pub const RAW: usize = 7;
-    pub const NAMES: [&str; 8] = ["skip", "mv", "splitH", "splitV", "mv+off", "fill", "pattern", "raw"];
+    pub const NAMES: [&str; 8] = [
+        "skip", "mv", "splitH", "splitV", "mv+off", "fill", "pattern", "raw",
+    ];
 }
 
 /// Decoder statistics. The fields match `fvmv_dec` in the reference C decoder one for one,
@@ -91,7 +93,11 @@ impl Default for Decoder {
 impl Decoder {
     /// A decoder with zeroed EWRAM, as after power-on.
     pub fn new() -> Self {
-        Decoder { ewram: vec![0u8; EWRAM_SIZE].into_boxed_slice(), frame_no: 0, stats: Stats::default() }
+        Decoder {
+            ewram: vec![0u8; EWRAM_SIZE].into_boxed_slice(),
+            frame_no: 0,
+            stats: Stats::default(),
+        }
     }
 
     /// Clear EWRAM and statistics, and set the frame counter.
@@ -126,7 +132,12 @@ impl Decoder {
     pub fn decode_frame(&mut self, payload: &[u8]) -> bool {
         let sel = self.frame_no & 1;
         let vlen = payload.len() as u32;
-        self.decode_frame_at(payload, vlen, Self::buffer_addr(sel), Self::buffer_addr(sel ^ 1))
+        self.decode_frame_at(
+            payload,
+            vlen,
+            Self::buffer_addr(sel),
+            Self::buffer_addr(sel ^ 1),
+        )
     }
 
     /// Decode one video payload with explicit buffer addresses. `data` holds the payload
@@ -364,7 +375,14 @@ impl Ctx<'_> {
         let (r0, r1) = (k & M32, k & L32);
         for x in 0..w {
             let e = dst.wrapping_add(2 * x);
-            self.blend3(r0, r1, e.wrapping_sub(STRIDE), e, e.wrapping_add(STRIDE), x & 1 != 0);
+            self.blend3(
+                r0,
+                r1,
+                e.wrapping_sub(STRIDE),
+                e,
+                e.wrapping_add(STRIDE),
+                x & 1 != 0,
+            );
         }
         for y in 0..h {
             let e = dst.wrapping_add(y * STRIDE);
@@ -381,8 +399,8 @@ impl Ctx<'_> {
         let mut pal = [c0, c1, 0, 0];
         for s in [10, 5, 0] {
             let (a, b) = ((c0 >> s) & 31, (c1 >> s) & 31);
-            pal[2] = pal[2] << 5 | (2 * a + b + 1) / 3;
-            pal[3] = pal[3] << 5 | (a + 2 * b + 1) / 3;
+            pal[2] = (pal[2] << 5) | ((2 * a + b + 1) / 3);
+            pal[3] = (pal[3] << 5) | ((a + 2 * b + 1) / 3);
         }
         (pal, lo | hi << 16)
     }
@@ -404,7 +422,10 @@ impl Ctx<'_> {
             for k in 0..4u32 {
                 let v = pal[((idx >> (2 * (4 * r + k))) & 3) as usize];
                 self.w16(row.wrapping_add(4 * k + 2), v);
-                self.w16(row.wrapping_add(4 * k), (left.wrapping_add(v & M32) >> 1) | (v & L32));
+                self.w16(
+                    row.wrapping_add(4 * k),
+                    (left.wrapping_add(v & M32) >> 1) | (v & L32),
+                );
                 left = v & M32;
             }
         }
@@ -463,7 +484,12 @@ impl Ctx<'_> {
                 self.st.mode_count[si][mode::MV] += 1;
                 let o = self.mvoff();
                 self.mv_check(pos, o, w, h);
-                self.copy_blk(dst, self.refb.wrapping_add(pos).wrapping_add(o as u32), w, h);
+                self.copy_blk(
+                    dst,
+                    self.refb.wrapping_add(pos).wrapping_add(o as u32),
+                    w,
+                    h,
+                );
             }
             return;
         }
@@ -535,13 +561,19 @@ impl Ctx<'_> {
             let o = self.mvoff();
             self.mv_check(pos, o, w, h);
             let k = self.colour();
-            self.copy_off_blk(dst, self.refb.wrapping_add(pos).wrapping_add(o as u32), w, h, k);
+            self.copy_off_blk(
+                dst,
+                self.refb.wrapping_add(pos).wrapping_add(o as u32),
+                w,
+                h,
+                k,
+            );
         }
     }
 
     #[inline]
     fn edge_stats(&mut self, pos: u32) {
-        if pos % STRIDE == 0 {
+        if pos.is_multiple_of(STRIDE) {
             self.st.edge_x0 += 1;
         }
         if pos < STRIDE {

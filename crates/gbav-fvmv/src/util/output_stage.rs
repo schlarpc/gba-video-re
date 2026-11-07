@@ -18,7 +18,11 @@ pub struct OutputStage {
 
 impl OutputStage {
     pub const fn new() -> Self {
-        OutputStage { err: 0, fb: 0, prev: 0 }
+        OutputStage {
+            err: 0,
+            fb: 0,
+            prev: 0,
+        }
     }
 
     /// Quantise one sample to signed 8 bits and update the error feedback

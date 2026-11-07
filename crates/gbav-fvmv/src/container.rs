@@ -97,7 +97,10 @@ pub fn walk(s: &[u8], h: &Header) -> Result<Vec<Record>> {
     while p + 0x18 <= end && recs.len() < h.nframes as usize {
         let vlen = rd32(s, p + 16);
         if p + 0x18 + vlen as usize > end {
-            return Err(Error::Format(format!("record {} video runs past the stream", recs.len())));
+            return Err(Error::Format(format!(
+                "record {} video runs past the stream",
+                recs.len()
+            )));
         }
         let r = Record {
             off: p as u32,
@@ -109,13 +112,20 @@ pub fn walk(s: &[u8], h: &Header) -> Result<Vec<Record>> {
             alen: rd32(s, p + 0x14 + vlen as usize),
         };
         if r.audio_range().end > end {
-            return Err(Error::Format(format!("record {} audio runs past the stream", recs.len())));
+            return Err(Error::Format(format!(
+                "record {} audio runs past the stream",
+                recs.len()
+            )));
         }
         recs.push(r);
         p += 16 + r.size as usize;
     }
     if recs.len() != h.nframes as usize {
-        return Err(Error::Format(format!("record walk found {} of {} frames", recs.len(), h.nframes)));
+        return Err(Error::Format(format!(
+            "record walk found {} of {} frames",
+            recs.len(),
+            h.nframes
+        )));
     }
     Ok(recs)
 }
@@ -125,7 +135,9 @@ pub fn seek_points(recs: &[Record]) -> Vec<u32> {
     let mut v: Vec<u32> = Vec::new();
     let find = |target: i64| -> Option<u32> {
         let t = u32::try_from(target).ok()?;
-        recs.binary_search_by_key(&t, |r| r.off).ok().map(|i| i as u32)
+        recs.binary_search_by_key(&t, |r| r.off)
+            .ok()
+            .map(|i| i as u32)
     };
     for r in recs {
         for t in [r.off as i64 + r.back as i64, r.off as i64 + r.fwd as i64] {
@@ -147,7 +159,10 @@ pub fn find_streams(rom: &[u8]) -> Vec<usize> {
     while o + HEADER_BYTES <= rom.len() {
         if &rom[o..o + 4] == b"FVMV" {
             if let Ok(h) = Header::parse(&rom[o..]) {
-                if h.width == 240 && h.height == 160 && o + HEADER_BYTES + h.data_size as usize <= rom.len() {
+                if h.width == 240
+                    && h.height == 160
+                    && o + HEADER_BYTES + h.data_size as usize <= rom.len()
+                {
                     out.push(o);
                 }
             }

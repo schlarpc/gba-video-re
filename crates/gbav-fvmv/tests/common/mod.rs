@@ -29,11 +29,18 @@ pub fn fvmv_carts(dir: &Path) -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
     for e in std::fs::read_dir(dir).expect("read GBAV_ROMS") {
         let p = e.unwrap().path();
-        if p.extension().and_then(|x| x.to_str()).map(|x| x.eq_ignore_ascii_case("gba")) != Some(true) {
+        if p.extension()
+            .and_then(|x| x.to_str())
+            .map(|x| x.eq_ignore_ascii_case("gba"))
+            != Some(true)
+        {
             continue;
         }
         let mut hdr = [0u8; 0xb0];
-        if std::fs::File::open(&p).and_then(|mut f| f.read_exact(&mut hdr)).is_err() {
+        if std::fs::File::open(&p)
+            .and_then(|mut f| f.read_exact(&mut hdr))
+            .is_err()
+        {
             continue;
         }
         let code = String::from_utf8_lossy(&hdr[0xac..0xb0]).to_string();
@@ -47,7 +54,11 @@ pub fn fvmv_carts(dir: &Path) -> Vec<(String, PathBuf)> {
 
 /// Lines of a gzip CSV manifest (header line dropped), split on commas.
 pub fn read_manifest(path: &Path) -> Vec<Vec<String>> {
-    let out = Command::new("gzip").arg("-dc").arg(path).output().expect("run gzip -dc");
+    let out = Command::new("gzip")
+        .arg("-dc")
+        .arg(path)
+        .output()
+        .expect("run gzip -dc");
     assert!(out.status.success(), "gzip -dc {}", path.display());
     String::from_utf8(out.stdout)
         .unwrap()
@@ -90,5 +101,8 @@ impl Rng {
 
 /// An env var parsed as a count, with a default.
 pub fn env_count(name: &str, default: usize) -> usize {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }

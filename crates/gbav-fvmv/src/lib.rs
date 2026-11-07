@@ -44,12 +44,20 @@ pub struct Stream {
 impl Stream {
     /// Parse the stream whose header is at `rom[offset..]`.
     pub fn parse(rom: &[u8], offset: usize) -> Result<Stream> {
-        let s = rom.get(offset..).ok_or_else(|| Error::Invalid("offset past the ROM".into()))?;
+        let s = rom
+            .get(offset..)
+            .ok_or_else(|| Error::Invalid("offset past the ROM".into()))?;
         let header = Header::parse(s)?;
         let records = container::walk(s, &header)?;
         let seek_points = container::seek_points(&records);
         let data: Arc<[u8]> = s[..container::HEADER_BYTES + header.data_size as usize].into();
-        Ok(Stream { data, rom_offset: offset, header, records, seek_points })
+        Ok(Stream {
+            data,
+            rom_offset: offset,
+            header,
+            records,
+            seek_points,
+        })
     }
 
     /// Open stream `id` ("0", "1", ...: the index among the ROM's FVMV streams).
@@ -58,8 +66,12 @@ impl Stream {
         if offs.is_empty() {
             return Err(Error::Format("no FVMV streams".into()));
         }
-        let i: usize = id.parse().map_err(|_| Error::Invalid(format!("stream id {id:?}")))?;
-        let o = *offs.get(i).ok_or_else(|| Error::Invalid(format!("no FVMV stream {id}")))?;
+        let i: usize = id
+            .parse()
+            .map_err(|_| Error::Invalid(format!("stream id {id:?}")))?;
+        let o = *offs
+            .get(i)
+            .ok_or_else(|| Error::Invalid(format!("no FVMV stream {id}")))?;
         Stream::parse(rom, o)
     }
 
@@ -106,7 +118,10 @@ impl Frame for FvmvFrame {
     }
 
     fn bgr555(&self) -> Vec<u16> {
-        self.buffer.chunks_exact(2).map(|p| u16::from_le_bytes([p[0], p[1]]) & 0x7fff).collect()
+        self.buffer
+            .chunks_exact(2)
+            .map(|p| u16::from_le_bytes([p[0], p[1]]) & 0x7fff)
+            .collect()
     }
 }
 
@@ -119,7 +134,11 @@ pub struct Video {
 
 impl Video {
     pub fn new(stream: Arc<Stream>) -> Video {
-        Video { stream, dec: Decoder::new(), next: 0 }
+        Video {
+            stream,
+            dec: Decoder::new(),
+            next: 0,
+        }
     }
 
     pub fn stream(&self) -> &Stream {
@@ -144,7 +163,9 @@ impl Video {
             return Ok(None);
         }
         if !self.dec.decode_frame(self.stream.video_payload(i)) {
-            return Err(Error::Undefined(format!("frame {i}: a reader ran past the payload")));
+            return Err(Error::Undefined(format!(
+                "frame {i}: a reader ran past the payload"
+            )));
         }
         self.next += 1;
         Ok(Some(i))
@@ -168,7 +189,10 @@ impl VideoDecoder for Video {
     fn next_frame(&mut self) -> Result<Option<FvmvFrame>> {
         Ok(self.decode_next()?.map(|index| {
             debug_assert_eq!(self.dec.last_frame().len(), FRAME_BYTES);
-            FvmvFrame { index, buffer: self.dec.last_frame().to_vec() }
+            FvmvFrame {
+                index,
+                buffer: self.dec.last_frame().to_vec(),
+            }
         }))
     }
 }
@@ -233,7 +257,9 @@ impl Audio {
             let ab = self.stream.audio_payload(self.frame);
             let k = self.block as usize;
             if (k + 1) * BLOCK_BYTES <= ab.len() {
-                let blk: &[u8; BLOCK_BYTES] = ab[k * BLOCK_BYTES..(k + 1) * BLOCK_BYTES].try_into().unwrap();
+                let blk: &[u8; BLOCK_BYTES] = ab[k * BLOCK_BYTES..(k + 1) * BLOCK_BYTES]
+                    .try_into()
+                    .unwrap();
                 self.state.decode_block(blk, &mut self.synth, &mut self.pcm);
                 for (d, &s) in self.pcm16.iter_mut().zip(self.synth.iter()) {
                     *d = s.clamp(-32768, 32767) as i16;
