@@ -3,7 +3,8 @@
  *                       [--md5] [--trace FILE] [--stats]
  * ROM: VX++ streams are located by their 'VX++' magic on a 0x200 boundary. The first one is
  *   decoded unless --stream picks another: a header offset (0x1eef800) or an index (1).
- *   --list prints the streams and exits.
+ *   --list prints the streams and exits. A 'VXGB' stream (GBA Video Rev 5 carts: Shark Tale,
+ *   Shrek 2) is decoded in VXGB mode.
  * --start-frame N: N = 0 starts like the player's power-on (first frame); otherwise the
  *   decoder seeks to the last seek-table entry <= N (exactly like the player's seek,
  *   0x02000584) and decodes forward, emitting frames N .. N+M-1.
@@ -55,22 +56,24 @@ int main(int argc, char **argv)
     fclose(f);
 
     long vx = -1, streams[64];
-    int ns = 0;
+    int ns = 0, vxgb = 0;
     for (long o = 0; o + 0x38 <= fsz && ns < 64; o += 0x200) {
-        if (memcmp(file + o, "VX++", 4)) continue;
+        if (memcmp(file + o, "VX++", 4) && memcmp(file + o, "VXGB", 4)) continue;
         uint32_t n = rd32(file + o + 4), sw = rd32(file + o + 8), sh = rd32(file + o + 12);
         if (n && n < (1u << 20) && sw && sw <= 240 && sh && sh <= 160 && !((sw | sh) & 15)) streams[ns++] = o;
     }
     if (list) {
         for (int i = 0; i < ns; i++)
-            printf("%d 0x%lx %ux%u %u frames\n", i, streams[i], rd32(file + streams[i] + 8),
-                   rd32(file + streams[i] + 12), rd32(file + streams[i] + 4));
+            printf("%d 0x%lx %.4s %ux%u %u frames\n", i, streams[i], (const char *)file + streams[i],
+                   rd32(file + streams[i] + 8), rd32(file + streams[i] + 12), rd32(file + streams[i] + 4));
         return 0;
     }
     if (want < 0 && ns) vx = streams[0];
     for (int i = 0; i < ns; i++)
         if (want == i || want == streams[i]) vx = streams[i];
-    if (vx < 0) { fprintf(stderr, "no VX++ stream%s\n", want >= 0 ? " there (see --list)" : ""); return 1; }
+    if (vx < 0) { fprintf(stderr, "no VX++ / VXGB stream%s\n", want >= 0 ? " there (see --list)" : ""); return 1; }
+    vxgb = file[vx + 2] == 'G';
+    if (vxgb && !vxgb_supported()) { fprintf(stderr, "VXGB stream, but vxdec was built without VXGB tables (make VXGB_ROM=...)\n"); return 1; }
     const uint8_t *h = file + vx;
     uint32_t nframes = rd32(h + 4), w = rd32(h + 8), hh = rd32(h + 12);
     uint32_t seekoff = rd32(h + 0x28), audio = rd32(h + 0x1c);
@@ -79,22 +82,24 @@ int main(int argc, char **argv)
     const uint8_t *ewimg = NULL;
     if (fsz > 0x8f0) {
         long prog = 0xa00 + (long)rd32(file + 0x8e4) + (long)rd32(file + 0x8e8);
+        uint32_t end = vxgb ? 0x02002b48 : 0x020032c8;   /* Rev 5 (VXGB) player: smaller image */
         if (prog + 0x44 <= fsz && rd32(file + prog + 14 * 4) == 0x02000000 &&
-            rd32(file + prog + 15 * 4) == 0x020032c8 && prog + 0x32c8 <= fsz)
+            rd32(file + prog + 15 * 4) == end && prog + (long)(end - 0x02000000) <= fsz)
             ewimg = file + prog;
     }
     if (w > 240 || hh > 160 || (w & 15) || (hh & 15)) { fprintf(stderr, "bad size %ux%u\n", w, hh); return 1; }
 
     static vx_dec d;
     size_t vlen = audio ? audio - 0x38 : (size_t)(fsz - vx - 0x38);
-    vx_dec_init(&d, h + 0x38, vlen, w, hh, ewimg, 0x32c8);
+    if (vxgb) vxgb_dec_init(&d, h + 0x38, vlen, w, hh, (int)rd32(h + 0x14), ewimg, 0x2b48);
+    else vx_dec_init(&d, h + 0x38, vlen, w, hh, ewimg, 0x32c8);
     if (tracef) d.trace = fopen(tracef, "w");
     if (initfill) {   /* non-player experiment: other initial slot contents */
         int fy = 0, fc = 0x80;
         sscanf(initfill, "%i,%i", &fy, &fc);
         for (int i = 0; i < 4; i++) {
-            memset(&d.ew[0x32c8 + i * 0xF000], fy, 0xA000);
-            memset(&d.ew[0x32c8 + i * 0xF000 + 0xA000], fc, 0x5000);
+            memset(&d.ew[d.slot0 + i * 0xF000], fy, 0xA000);
+            memset(&d.ew[d.slot0 + i * 0xF000 + 0xA000], fc, 0x5000);
         }
     }
 
@@ -131,7 +136,7 @@ int main(int argc, char **argv)
             fwrite(slot, 1, 0xF000, o);
             fclose(o);
         }
-        if (rgb || yf || md5) vx_yuv_to_bgr555(slot, rgbbuf, w, hh);
+        if (rgb || yf || md5) vx_yuv_to_bgr555_any(&d, slot, rgbbuf);
         if (rgb && outdir) {
             snprintf(path, sizeof path, "%s/%05ld.bgr555", outdir, cur);
             FILE *o = fopen(path, "wb");

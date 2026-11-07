@@ -48,4 +48,11 @@ extern const uint16_t vx_coef_lut[4096];
 
 int vx_residual(vx_bits *bs, const vx_qscale *q, uint8_t *Y, uint8_t *UV, int w, int h);
 
+/* VXGB (Rev 5 player, IWRAM 0x03005eb0): same block sizes and Y/UV pointers; s[8] = the
+ * per-position dequant scales (index (y&1)*4 + x); nzy / nzc = this block's entries in the
+ * persistent luma (stride 0x41) / chroma (stride 0x21) nonzero-count grids, which it reads
+ * (left and top neighbours) and writes. vxgb_residual.c, docs/vxgb.md. */
+int vxgb_residual(vx_bits *bs, const int32_t s[8], uint8_t *Y, uint8_t *UV, uint8_t *nzy,
+                  uint8_t *nzc, int w, int h);
+
 #endif

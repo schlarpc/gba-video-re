@@ -21,6 +21,7 @@
 #include "residual.h"
 #include "fill_tables.h"
 #include "vxdec.h"
+#include "vxgb_tables.h"
 
 #define EWMASK 0x3FFFF
 #define SLOT0 0x32C8u
@@ -411,6 +412,27 @@ static void intra_4x4(vx_dec *d, int w, int h)
     ipred_chroma(d, vx_ue(bs), w, h);
 }
 
+/* ------------------------------------------------------------------ VXGB nonzero-count grids */
+/* The Rev 5 player keeps the CAVLC nC context in two persistent byte grids (zeroed once by
+ * player_run, never per frame or on seek): luma, one byte per 4x4, stride 0x41, MB (0,0) at
+ * 0x0203eb8a; chroma, one byte per 4x4 chroma block (U and V share it), stride 0x21, MB (0,0)
+ * at 0x0203f5d3. The 16x16/16x8/8x16/8x8 dispatchers zero the block's entries after every
+ * mode without residual (0x03001b20, 0x03002040, 0x03003190, 0x03003720), except a split
+ * into 8x8-or-larger halves, which zero (or code) their own entries; blocks smaller than
+ * 8x8 never touch the grids, and split pointers only move for 8-row / 8-column halves. */
+#define VXGB_NZY_START 0x3EB8Au
+#define VXGB_NZY_STRIDE 0x41
+#define VXGB_NZC_START 0x3F5D3u
+#define VXGB_NZC_STRIDE 0x21
+
+static void nz_clear(vx_dec *d, int w, int h)
+{
+    for (int y = 0; y < h / 4; y++)
+        for (int x = 0; x < w / 4; x++) wr8(d, d->nzy + y * VXGB_NZY_STRIDE + x, 0);
+    for (int y = 0; y < h / 8; y++)
+        for (int x = 0; x < w / 8; x++) wr8(d, d->nzc + y * VXGB_NZC_STRIDE + x, 0);
+}
+
 /* ------------------------------------------------------------------ partition tree */
 /* Dispatchers 0x03001dac (16x16), 0x03002184 (16x8), 0x030030f4 (8x16), 0x03003584 (8x8):
  * 24 modes; all smaller sizes: 12 modes (no residual variants). mode = ue(v).
@@ -444,22 +466,33 @@ static void block(vx_dec *d, int w, int h, int pmx, int pmy)
         if (h == 2) { d->err++; return; }
         block(d, w, h / 2, pmx, pmy);
         d->yoff += (h / 2) * 256; d->uvoff += (h / 4) * 256;
+        if (h == 16) { d->nzy += 2 * VXGB_NZY_STRIDE; d->nzc += VXGB_NZC_STRIDE; }
         block(d, w, h / 2, pmx, pmy);
         d->yoff -= (h / 2) * 256; d->uvoff -= (h / 4) * 256;
+        if (h == 16) { d->nzy -= 2 * VXGB_NZY_STRIDE; d->nzc -= VXGB_NZC_STRIDE; }
         break;
     case 2:
         if (w == 2) { d->err++; return; }
         block(d, w / 2, h, pmx, pmy);
         d->yoff += w / 2; d->uvoff += w / 2;
+        if (w == 16) { d->nzy += 2; d->nzc += 1; }
         block(d, w / 2, h, pmx, pmy);
         d->yoff -= w / 2; d->uvoff -= w / 2;
+        if (w == 16) { d->nzy -= 2; d->nzc -= 1; }
         break;
     case 4: intra_bilinear(d, w, h); break;
     case 5: mc_dcoff(d, w, h); break;
     case 6: if (w >= 4 && h >= 4) intra_16(d, w, h); break;   /* no-op (no bits) for 2-wide/2-high */
     case 7: if (w >= 4 && h >= 4) intra_4x4(d, w, h); break;
     }
-    if (res) {
+    if (d->vxgb) {
+        if (res) {
+            if (vxgb_residual(&d->bs, d->gscale, px(d, d->outY + d->yoff), px(d, d->outC + d->uvoff),
+                              px(d, d->nzy), px(d, d->nzc), w, h) < 0)
+                d->err++;
+        } else if (big && !(m == 1 && h == 16) && !(m == 2 && w == 16))
+            nz_clear(d, w, h);   /* every leaf mode, and splits into blocks smaller than 8x8 */
+    } else if (res) {
         if (vx_residual(&d->bs, &d->q, px(d, d->outY + d->yoff), px(d, d->outC + d->uvoff), w, h) < 0)
             d->err++;
     }
@@ -474,6 +507,13 @@ static void set_qp(vx_dec *d, uint32_t qp)
     /* 0x03000730: tables 0x030006c8 (QP%6 * 12) and 0x030006f8 (QP/6), 48 entries each */
     d->q.qp = (int)qp;
     for (int i = 0; i < 3; i++) d->q.scale[i] = (int32_t)level_scale[qp % 6][i] << (qp / 6);
+}
+
+/* player_run: ctx+0x100 + 4i = deq[qp%6][i] << qp/6 (deq: EWRAM 0x02002a14, i = (y&1)*4 + x) */
+static void vxgb_set_qp(vx_dec *d, int qp)
+{
+    for (int i = 0; i < 8; i++)
+        d->gscale[i] = (int32_t)((uint32_t)vxgb_deq[(qp % 6) * 8 + i] << (qp / 6));
 }
 
 static inline void mv_unpack(int16_t v, int *x, int *y)
@@ -497,13 +537,13 @@ void vx_decode_frame(vx_dec *d)
     uint32_t n = d->dec_index;
     for (int k = 0; k < 3; k++) {
         uint32_t s = (n - 1 - k) & 3;
-        d->refY[k] = SLOT0 + s * SLOTSZ;
-        d->refC[k] = SLOT0 + s * SLOTSZ + 0xA000;
+        d->refY[k] = d->slot0 + s * SLOTSZ;
+        d->refC[k] = d->slot0 + s * SLOTSZ + 0xA000;
     }
-    d->outY = SLOT0 + (n & 3) * SLOTSZ;
+    d->outY = d->slot0 + (n & 3) * SLOTSZ;
     d->outC = d->outY + 0xA000;
     d->frame_bit = vx_bits_pos(&d->bs);
-    {
+    if (!d->vxgb) {
         uint32_t q = vx_ue(&d->bs);   /* 0 = keep QP; else new QP */
         d->hdr_q = q;
         if (q) {
@@ -516,7 +556,9 @@ void vx_decode_frame(vx_dec *d)
     for (int my = 0; my < d->height / 16; my++) {
         for (int mx = 0; mx < d->width / 16; mx++) {
             int ax, ay, bx, by, cx, cy;
-            d->mvp = MVSTART + my * MVSTRIDE + mx * 2;
+            d->mvp = d->mvstart + my * MVSTRIDE + mx * 2;
+            d->nzy = VXGB_NZY_START + my * 4 * VXGB_NZY_STRIDE + mx * 4;
+            d->nzc = VXGB_NZC_START + my * 2 * VXGB_NZC_STRIDE + mx * 2;
             wr16(d, d->mvp, 0);
             mv_unpack(rd16s(d, d->mvp - 2), &ax, &ay);            /* left */
             mv_unpack(rd16s(d, d->mvp - MVSTRIDE), &bx, &by);     /* top */
@@ -535,7 +577,7 @@ void vx_decode_frame(vx_dec *d)
 
 const uint8_t *vx_frame_slot(vx_dec *d, uint32_t dec_index)
 {
-    return &d->ew[SLOT0 + (dec_index & 3) * SLOTSZ];
+    return &d->ew[d->slot0 + (dec_index & 3) * SLOTSZ];
 }
 
 /* Player state after player_run (0x03006df4): Y planes 0, chroma 0x80, MV array 0,
@@ -551,11 +593,42 @@ void vx_dec_init(vx_dec *d, const uint8_t *stream, size_t size, int width, int h
         memset(&d->ew[SLOT0 + i * SLOTSZ + 0xA000], 0x80, 0x5000);
     }
     memset(&d->ew[MVARR], 0, 0x318);
+    d->slot0 = SLOT0;
+    d->mvstart = MVSTART;
     d->width = width;
     d->height = height;
     d->dec_index = 3;
     d->stream = stream;
     d->size = size;
+    vx_bits_init_start(&d->bs, stream, size);
+}
+
+/* VXGB player state after player_run (EWRAM 0x02000a00): frame slots at 0x02002b48 + i*0xF000
+ * (Y 0, chroma 0x80), nnz grids 0x0203eb48 (0xa69 bytes) and 0x0203f5b1 (0x2b5), MV array
+ * 0x0203f866 (0x318) all zero, decode index 3; QP = VX header +0x14 for the whole stream.
+ * ewram_image: optional Rev 5 EWRAM image (ROM 0x8a00, 0x2b48 bytes). */
+void vxgb_dec_init(vx_dec *d, const uint8_t *stream, size_t size, int width, int height, int qp,
+                   const uint8_t *ewram_image, size_t ewram_len)
+{
+    memset(d, 0, sizeof *d);
+    d->vxgb = 1;
+    d->slot0 = 0x2B48;
+    d->mvstart = 0x3F8B2;
+    if (ewram_image) memcpy(d->ew, ewram_image, ewram_len < 0x2b48 ? ewram_len : 0x2b48);
+    for (int i = 0; i < 4; i++) {
+        memset(&d->ew[d->slot0 + i * SLOTSZ], 0, 0xA000);
+        memset(&d->ew[d->slot0 + i * SLOTSZ + 0xA000], 0x80, 0x5000);
+    }
+    memset(&d->ew[0x3EB48], 0, 0xA69);
+    memset(&d->ew[0x3F5B1], 0, 0x2B5);
+    memset(&d->ew[0x3F866], 0, 0x318);
+    d->width = width;
+    d->height = height;
+    d->dec_index = 3;
+    d->stream = stream;
+    d->size = size;
+    d->q.qp = qp;
+    vxgb_set_qp(d, qp);
     vx_bits_init_start(&d->bs, stream, size);
 }
 
@@ -610,6 +683,29 @@ void vx_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int height)
         }
 }
 
+/* Rev 5 player: same blitter, but its literal pool moved, so one byte of the table's
+ * index range (IWRAM 0x380 = T[400]) differs from VX++ Shrek. The blitter builds each
+ * horizontal pixel pair in one register by ADDING the six table values, shifted, and
+ * stores it as one word, so a table byte > 31 (T[k] for k >= 384 is code) carries into the
+ * next field and into the odd pixel. */
+void vxgb_yuv_to_bgr555(const uint8_t *slot, uint16_t *out, int width, int height)
+{
+    const uint8_t *T = vxgb_iwram_lo + 0x1f0;
+    for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x += 2) {
+            int u = slot[0xA000 + (y >> 1) * 256 + x] - 128;
+            int v = slot[0xA000 + (y >> 1) * 256 + x + 1] - 128;
+            uint32_t w = 0;
+            for (int k = 0; k < 2; k++) {
+                int Y = slot[y * 256 + x + k] - 4 * ((x + k + y) & 1);
+                w += ((uint32_t)T[Y + 2 * v] + ((uint32_t)T[Y - (v + (u >> 1))] << 5) +
+                      ((uint32_t)T[Y + 2 * u] << 10)) << (16 * k);
+            }
+            out[y * width + x] = (uint16_t)w;
+            out[y * width + x + 1] = (uint16_t)(w >> 16);
+        }
+}
+
 /* ------------------------------------------------------------------ test API (fuzz.py, ctypes) */
 vx_dec *vx_new(void) { return calloc(1, sizeof(vx_dec)); }
 void vx_free(vx_dec *d) { free(d); }
@@ -617,3 +713,8 @@ uint8_t *vx_ewram(vx_dec *d) { return d->ew; }
 unsigned long vx_errors(vx_dec *d) { return d->err; }
 uint32_t vx_bitpos(vx_dec *d) { return vx_bits_pos(&d->bs); }
 void vx_set_mbbits(vx_dec *d, uint32_t *p) { d->mb_bits = p; }
+void vx_yuv_to_bgr555_any(vx_dec *d, const uint8_t *slot, uint16_t *out)
+{
+    (d->vxgb ? vxgb_yuv_to_bgr555 : vx_yuv_to_bgr555)(slot, out, d->width, d->height);
+}
+int vxgb_supported(void) { return VXGB_HAVE_TABLES; }

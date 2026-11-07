@@ -5,6 +5,7 @@
 decoder/vxdec
 decoder/*.so
 decoder/iwram_lut.h
+decoder/vxgb_tables.h
 decoder_out/
 player/
 ref/

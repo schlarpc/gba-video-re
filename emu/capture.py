@@ -116,7 +116,9 @@ def find_checkpoint(n, sdir=os.path.join(HERE, "states")):
 
 
 def ctx_valid(w):
-    return w[0] == 0x020032C8 and w[8] != 0  # buffers set up and stream pointer (+0x20) loaded
+    # buffers set up (frame slot 0: 0x020032C8 VX++ player, 0x02002B48 VXGB Rev 5 player)
+    # and stream pointer (+0x20) loaded
+    return w[0] in (0x020032C8, 0x02002B48) and w[8] != 0
 
 
 def main():
