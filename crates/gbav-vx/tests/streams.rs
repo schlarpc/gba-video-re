@@ -67,20 +67,23 @@ fn verify_video(rom: &[u8], c: &Cart, off: usize) {
     let dt = t0.elapsed();
     let end_bit = v.core().bits.bitpos();
     if let Some(fb) = frame_bits(c.short, off) {
-        assert_eq!(fb.len(), starts.len() + 1);
+        // nframes entries, or nframes + 1 with the end of the last frame
+        assert!(fb.len() == starts.len() || fb.len() == starts.len() + 1);
+        let end_ok = fb.get(starts.len()).is_none_or(|&e| e == end_bit);
         let bad: Vec<usize> = (0..starts.len()).filter(|&i| fb[i] != starts[i]).collect();
         assert!(
-            bad.is_empty() && fb[starts.len()] == end_bit,
+            bad.is_empty() && end_ok,
             "{}:{id}: frame start bits differ from the walker at {:?}",
             c.short,
             &bad[..bad.len().min(10)]
         );
         println!(
-            "{:22} {:>9} frame start bits: {}/{} + end bit equal the grammar walker's",
+            "{:22} {:>9} frame start bits: {}/{}{} equal the grammar walker's",
             c.short,
             format!("0x{off:x}"),
             starts.len(),
-            starts.len()
+            starts.len(),
+            if fb.len() > starts.len() { " + end bit" } else { "" }
         );
     }
     let st = v.stats();
