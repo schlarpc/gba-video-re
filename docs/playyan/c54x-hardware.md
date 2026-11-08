@@ -20,8 +20,14 @@ mGBA.
   and the odd-address byte is the earlier sample, confirming the GBA side ([protocol.md](protocol.md)
   11.5). That conversion has no bit-exact reference yet.
 - The tick at 0x010F advances every 16 ms, 1.05 per GBA frame, against the GBA watchdog's 0.87.
-
-Not exercised: background play (0x0400/0x0401) and sleep/wake (0x0500/0x0501).
+- Pacing: in speaker mode 28.40 blocks/s (16,360 samples/s); position records once per second.
+- Background play and sleep run on the real firmware. 0x0400 (2:DD74) saves 0xD861, answers
+  0x4400 and keeps playing the queue; 0x0401 (2:DD8C) restores it and answers 0x4401 (2:BD00).
+  0x0500 (2:DDCF) saves IMR and sets IMR = 0x0200 (HPI only), lowers CLKMD, powers the codec down
+  (2:E018, McBSP1) and executes `idle 3`; the next HPI host interrupt resumes it, and it restores
+  its state and answers 0x8501 (2:BD35). The DSP never sends a wake record by itself, but any
+  record raises HINT and so a Game Pak interrupt: unplugging headphones during background play
+  sends 0x8600 within 9 frames, which wakes the GBA ([protocol.md](protocol.md) 11.4).
 
 ## Board
 
@@ -101,6 +107,7 @@ DMA in general  [C]
 GPIO / XF / BIO / I/O space  [P]
   GPIOCR/GPIOSR, XF, BIO and PORTR/PORTW are not used by the firmware (no access in any run).
 INTERRUPTS used  [C]
-  IFR bit 3 TINT (BIOS CLK), bit 9 HPI (GBA doorbell), bit 11 DMAC3 (audio DMA).  IMR = 0x0A08.
+  IFR bit 3 TINT (BIOS CLK), bit 9 HPI (GBA doorbell), bit 11 DMAC3 (audio DMA).  IMR = 0x0A08;
+  0x0200 (HPI only) while 0x0500 sleeps in `idle 3`.
   TRAP 15 (vector 0x00BC, bd 0x44B0) = BIOS context switch.
 ```

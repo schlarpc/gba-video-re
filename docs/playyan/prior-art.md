@@ -10,6 +10,8 @@ Sources:
   comparison only, no code taken), commit 8b748c0 (2026-10-01)
 - **[fw]** this repository's firmware analysis ([firmware.md](firmware.md)). It is used only for the
   firmware's own message names and image facts, and is marked [fw-names] in the other docs.
+- **[lle]** the real cartridge firmware running in this repository's emulator, as in
+  [protocol.md](protocol.md).
 
 GBE+ emulates at a high level: it returns the records and data the ROM expects, and it does not
 model the cartridge's memory. Most differences below come from that. Its data reads ignore the
@@ -43,7 +45,7 @@ ROM requires, not to criticise the emulation.
 | "512 bytes at a time"; address range 0x00000-0xEFFFF | [D] | Partly | Chunk size confirmed (0x200 bytes per DMA burst). Extended: ROM-to-RAM staging in 0x400 or 0x800 bytes; incremental mode moves 16 KiB per frame. Destinations are VC 0 and 0xC0200 only |
 | "Firmware read: 0xA00 bytes at a time, re-addressed after each 0xA00" | [D] | **No** | Corrected: that traffic is the boot **RAM test** (protocol.md 5.3): a 511-byte pattern is written to VC 0xEC400-0xFEFFF and read back in 0xA00-byte blocks. The GBA never reads firmware back. Also new: the test's pass/fail switches frame reads to streaming mode, and its pass-count argument is ignored because of a reused loop register |
 | Write 0xA5A50032 to 0x10000400 raises an IRQ; response 0x80000100 | [D][G] | Yes | Named VC_STARTUP_INDICATION [fw]. Extended: rec[1] is a status selecting the boot error screens. The same kick follows every upload |
-| "This IRQ is not generated when exiting Sleep" | [D][G] | Partly | Refined: after 0x10000 sleep the GBA writes the kick itself, 30 frames after waking, and waits for **0x80010001** (WAKEUP_INDICATION [fw]), not 0x80000100 |
+| "This IRQ is not generated when exiting Sleep" | [D][G] | Partly | Refined: after 0x10000 sleep the GBA writes the kick itself from a 30-frame task (21 frames after the wake key on the real firmware, because the task's timer starts before Stop) and waits for **0x80010001** (WAKEUP_INDICATION [fw]), not 0x80000100. The firmware answers 0.48 s after the kick, without rebooting **[lle]** |
 | Firmware switch when entering the Music or Video menus | [D] | Yes | Explained: the music and video firmwares are separate images. Every switch reloads fw0 or fw1 after 0x800000 RESET_STANDBY. fw2 is reloaded only if the update file has a part for the target media |
 | Update check 0x8000; "if both bit 0 and bit 1 are set, load" | [D] | **No** | Corrected: rec[2] of 0x40008000 is a parts mask, bit 0 = video, bit 1 = music, tested separately. 0x8001's parameter (1 or 2) names the part |
 | 0x8001 "Load firmware", reply 0x80000100 | [D] | Partly | Corrected: the reply is 0x40008001 (FIRMWARE_DOWNLOAD_CONFIRM [fw]), after which the GBA sends 0x800000. 0x80000100 comes later, when a firmware starts |
@@ -59,7 +61,7 @@ ROM requires, not to criticise the emulation.
 | "PY_DATA_ADDR 0xFF020 is the command address" | [D][G] | Yes | |
 | 0x500 sends 0x218 bytes, the last 0x18 wrap to 0xB000100 | [D] | **No** | Corrected: 0x500 is **0x118** bytes: 60, 40, 0, 0, name at +0x14. That fits in one 0x200 chunk. A command over 0x200 bytes would be re-addressed to 0xFF220, not wrapped |
 | 0x300 brightness 0x101-0x2C0 in 0x40 steps | [D] | Partly | Range confirmed. Corrected: six values from a table, 0x101, 0x140, 0x180, 0x1E0, 0x240, 0x2C0, not evenly spaced. Firmware name VIDEO_MODE_SET [fw] |
-| 0x400 unknown | [D] | | Extended: [0x400, 1, 0], sent on entering every audio scene, no reply handled. Firmware name AUDIO_MODE_SET [fw] |
+| 0x400 unknown | [D] | | Extended: [0x400, 1, 0], sent on entering every audio scene, no reply handled. Firmware name AUDIO_MODE_SET [fw]. Word 1 switches the 8-bit speaker stream on **[lle]** |
 | 0x700 width 240, height 160 | [D] | Yes | Extended: the video browser sends 60 x 40 for its live preview, and the cartridge then delivers 60x40 frames |
 | 0x905 seek: param 1 speed, param 2 absolute position when param 1 = 0 (frame number) | [D]; [G]: ≤0x10 forward step, ≥0xFFF0 back step, else ×30 frames | **No** | Corrected: in the original ROM 0x905 has **one** 32-bit parameter (8 bytes total). Music: the absolute trackbar target 0..0x6400 (agrees with [D]). Video: a signed step derived from duration, hold time and elapsed frames (player.md 5.3), the resume time in seconds (5.4), or 0 / -1 in step-back. No second parameter is ever sent |
 | Resume restarts "~5-6 s" before the exit; needs ≥6 s of playback | [A2][D] | Yes | Exact rule: resume = last whole second − 5, stored only once the clock passes 5 s; 6-9 s gives 5 s. Per-index table of 99 entries. On resume the GBA mutes, sends 0x905(seconds) and 0x904 on the first non-audio record, and unmutes 10 records later |
@@ -89,7 +91,7 @@ ROM requires, not to criticise the emulation.
 | Music 16384 Hz, video 8192 Hz, sound effects 8192 Hz | [D][G] | Yes | Exact switch points: 16384 on 0x40000800, 8192 on 0x40000801, video and menus 8192, title intro 16384 (the original too, not only the Micro). New: adaptive timer trim of −3..+3 cycles from the averaged fill level, and an underrun hold of the last sample |
 | Video frames 0x12C00 to Mode 3, read like thumbnails | [D] | Yes | Extended: DMA'd straight into VRAM with the Game Pak IRQ masked, from the idle hook while the GBA waits for VBlank. Streaming mode if the RAM test passed. Paced only by the cartridge |
 | 0x80010001, 0x40800000 | [D] | Partly | Purposes established (wake, reset-standby confirm) |
-| Unhandled indications | none | | New: the firmware defines ALERT 0x80100000, HP_JACK_STATUS_CHANGE 0xC0000000, AC_ALERT 0xC0000001 [fw]. The original GBA code has no handler, so they count as "unknown ID" (error 1). The GBA has no headphone input at all |
+| Unhandled indications | none | | New: the firmware defines ALERT 0x80100000, HP_JACK_STATUS_CHANGE 0xC0000000, AC_ALERT 0xC0000001 [fw]. Only ALERT is ever sent as a record; the original GBA code has no handler, so it counts as "unknown ID" (error 1). The other two are internal messages of the VC firmware **[lle]**. The GBA has no headphone input at all |
 | Error codes 1-5 on 0x8001's reply | [D] | Partly | The screens are driven by rec[1] of **0x80000100**, with the same five texts confirmed. In the menu a non-zero status shows "AC97 ERROR!" |
 
 ## Garage Games

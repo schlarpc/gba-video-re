@@ -202,7 +202,8 @@ waits for VBlank (0x0C021C80 sets the hook to call 0x0C025454 in the scene conte
 drained continuously during the idle part of each frame, as well as from the scene update. The
 response ring holds 16 records. The cartridge must keep a frame's buffer valid until the GBA has
 copied it, but nothing in the GBA code tells the cartridge when a frame has been read
-[inferred].
+[inferred]. The cartridge paces frames by its own clock: 30.02 frames/s for ASF, 29.97 for MP4,
+with the A/V offset within ±0.06 s and no drift (protocol.md 7.4) **[lle]**.
 
 The 0x80001000 callback (0x0C021B8C) counts frames (ctx+0x4A) and audio blocks (ctx+0x4C). The
 clock shows rec[6] / 1000 seconds as H:MM:SS, and the progress bar is `seconds x 0xE0 / duration`.
@@ -269,17 +270,24 @@ The cartridge produces all sound. Music, the video soundtrack and the menu sound
 OPERATION_SOUND) all arrive as 8-bit PCM blocks in DECODE_DATA_INDICATION records. They are
 scaled by the gain for the play state: x1.5 video, x1.0 music, x0.375 otherwise (protocol.md
 7.4). The GBA's software volume (0x030012B0) is **not** applied to the PCM. The user volume goes
-to the cartridge as 0xB00 [code: 0x0C026158 reads the setting and discards it]. Rates
-**[code]**:
+to the cartridge as 0xB00 [code: 0x0C026158 reads the setting and discards it], and the cartridge
+applies it to the 8-bit stream itself, s x v / 32 truncating (28/32 at the default level), before
+the GBA's gain **[lle]**. Rates **[code]**:
 
 | when | rate | set by |
 |---|---|---|
 | audio init, video player, menus, after a music stop | **8192 Hz** | 0x0C026048(0x2000), 0x0C02610C(0x2000) |
 | title intro, after a music start confirm (0x40000800) | **16384 Hz** | 0x0C02610C(0x4000) |
 
-With headphones plugged in, prior work reports that the cartridge sends no audio blocks and
-plays through its own jack [prior]. The GBA code has no headphone state and just plays whatever
-blocks arrive.
+With headphones plugged in, the cartridge sends no audio blocks and plays through its own jack:
+plugging in stops the 8-bit stream within 1 s, unplugging resumes it, and no record tells the GBA
+**[lle]** (protocol.md 7.3). The GBA code has no headphone state and just plays whatever blocks
+arrive.
+
+**Pacing [lle].** The cartridge paces the blocks by its AC'97 DAC: its decoder waits for the DAC's
+DMA ring, so the 8-bit record rate scales exactly with the DAC rate, and no GBA acknowledgement is
+needed. Music gives 28.43-28.48 blocks/s against the expected 16,384 / 576 = 28.44, with the
+speaker stream a constant 0.05-0.10 s ahead of the headphone output and no drift (protocol.md 7.4).
 
 ### 6.2 Output stage (0x0C025FE0, 0x0C026048, 0x0C025E4C, 0x0C0261D0, 0x0C026324)
 
@@ -330,7 +338,7 @@ The music scene (0x0C011B58) **[code]**:
 3. **0x906(1)** (position indications on), the volume (0xB00), then **0x800** with the name. On
    0x40000800 the rate becomes 16384 Hz; then 0xD00(3D level x 15 / 6) and 0xD01(tone) are sent.
 4. Each 0x80001000 without audio latches the trackbar (rec[5], 0..0x6400) and the elapsed seconds
-   (rec[6]).
+   (rec[6]). The firmware sends one such position record per second **[lle]**.
 5. **Seek** (0x0C013B90): while Right is held, every 15 frames the step grows by 16 up to the
    maximum (holding A uses the maximum at once). It sends **0x905(min(trackbar + step, 0x6400))**,
    an absolute trackbar target. Rewind is the mirror image.
@@ -339,9 +347,16 @@ The music scene (0x0C011B58) **[code]**:
 
 ## 8. Sleep
 
-Auto-sleep is armed by START in the main menu (toggle 0x03002D94) or by L+R in a player. Once
-armed, 30 s without input (0x708 frames) leads to sleep, with a warning icon for the last 6 s
-(0x168 frames). Any key press restarts the 30 s **[code: 0x0C014844, 0x0C022748]**.
+Auto-sleep is armed by START in the main menu (toggle 0x03002D94) or by L+R in a player. Arming
+clamps the countdown to 0x168 frames, so sleep follows about 6 s later under the warning icon; a
+later key press restarts the full 30 s (0x708 frames) **[code: 0x0C014844, 0x0C022748; lle]**. In the
+video browser L+R led to 0x10000 5.9 s later **[lle]**.
+
+In the music player the arming code (0x0C014844) sets 0x03002D94 on L+R only if ctx+0x35A is 0.
+The 0x80001000 callback 0x0C01219C, run for every record that carries 8-bit audio, resets the
+countdown to 0x708 and ctx+0x35A to 10. So while the cartridge streams speaker audio the music
+player can neither arm nor time out: music-player sleep works only with headphones plugged in
+**[lle]**.
 
 - **Music playing** (state 4): **0x906(0)** turns position indications off, so the cartridge stops
   raising interrupts for the trackbar. The GBA then calls 0x0C0240C8:
@@ -353,13 +368,24 @@ armed, 30 s without input (0x708 frames) leads to sleep, with a warning icon for
   The Game Pak interrupt stays enabled, so a cartridge record also wakes the GBA. After waking,
   0x0C024C18 runs the interrupt handler body once by hand and looks at the newest record. If it is
   0x40000801 (the song ended) the player marks it. The player then sends **0x906(1)**. Over the
-  cartridge's own jack the music goes on while the GBA is stopped [prior]. Over the GBA speaker
-  nothing plays while it is stopped [code].
+  GBA speaker nothing plays while it is stopped [code].
+
+  On the real firmware, with headphones: L+R, then 0x906(0) 5.9 s later and Stop with
+  KEYCNT = 0x40FF and IE = 0x3401. 0x906(0) also stops the position records, so no record arrives
+  while the GBA is stopped; the cartridge keeps playing through its jack. At the end of the song
+  it posts 0x40000801, whose Game Pak interrupt wakes the GBA; the player sends 0x906(1) and moves
+  to the next song (0x600, 0x800) **[lle]**.
 - **Otherwise**: **0x10000** SLEEP_REQUEST, then the same Stop sequence at once, without waiting
-  for a reply. After a key wakes the GBA, a task 30 frames later writes the **kick 0xA5A50032 to
+  for a reply. After a key wakes the GBA, a 30-frame task writes the **kick 0xA5A50032 to
   VC 0x10000400** again and waits for **0x80010001** WAKEUP_INDICATION. That callback restarts
   the inactivity timer and re-enables soft reset **[code: 0x0C01161C/0x0C0115F4/0x0C0115B0;
-  0x0C0147FC; 0x0C018704; 0x0C022708/0x0C0226E0]**.
+  0x0C0147FC; 0x0C018704; 0x0C022708/0x0C0226E0]**. On the real firmware this works end to end
+  **[lle]**: the video image's sleep handler (0x11012) powers the codec down, switches the power
+  switches off, masks the timer interrupt, sets the PLL to 0xA5A50000 and waits for an interrupt
+  (`4330` at 0x1104A). The kick came 21 frames after the wake key, not 30, because the task's
+  timer starts before Stop and VBlank interrupts pend while stopped. It resumes the core after the
+  `4330` without a reboot; the firmware restores PLL, timer and codec and sends 0x80010001 0.48 s
+  after the kick.
 
 ## 9. Video browser and Garage Games
 
@@ -420,7 +446,12 @@ All addresses in this section are Micro addresses. Full detail: [micro.md](micro
 - **Auto-play** (new): 0x4000 VC_AUTO_PLAY_START [fw-names] hands the cartridge the play mode and
   two 100-entry u16 arrays (track flags, play order), and the GBA forces a blank screen. 0x4001
   and 0x40004001 return the play order and the current track on wake, after which the GBA sends
-  0x906. The reading as "keep playing a queue while the GBA sleeps" is [inferred].
+  0x906. The reading as "keep playing a queue while the GBA sleeps" is [inferred]. Arming uses the
+  same code as section 8 (0x0C0164xx), so it needs headphones. With them, L+R gave 0x4000 4.2 s
+  later, then Stop with **KEYCNT = 0x0008** (START selected, interrupt bit 14 clear). The cartridge
+  sends 0x40004001 only in answer to 0x4001 and initiates no record during auto-play, so only a
+  key can wake the GBA (section 12). If START ends that Stop, the GBA sends 0x4001, gets
+  0x40004001, sends 0x906 and shows the next track (0x600, 0x800) **[lle]**.
 - No Garage Games, and no test or WS0 scenes.
 
 ## 11. Nintendo MP3 Player
@@ -451,10 +482,16 @@ Protocol details are in protocol.md 11, and full notes with addresses in [nmp.md
   0xC800 / length, at least 0x355), 0x0070(1) and 0x0050. Position records (0x8100 with A = 0) carry
   the trackbar 0..0x6400 and the elapsed seconds. Seeking is 0x0060 with an absolute target every
   15 frames, the same scheme as the Play-Yan music player.
-- **Background play** **[inferred]**: after about 30 s idle while playing, the app sends 0x0400
-  with the play mode, current index and two 100-entry tables, then blanks the screen. 0x0401 /
-  0x4401 bring back the current track. This is the counterpart of the Micro's 0x4000/0x4001.
-- **Sleep**: 0x0500, then BIOS Stop; 0x0501 after waking, answered by 0x8501.
+- **Background play**: once armed by L+R (or START held) while playing, the countdown is clamped to
+  0x104 frames, and about 4.3 s later the app sends 0x0400 with the play mode, current index and
+  two 100-entry tables, blanks the screen and enters Stop with KEYCNT = 0x0008 **[lle]** (the
+  arming code is section 8's, at 0x02031880). The DSP answers 0x4400 and keeps playing. Unplugging
+  headphones wakes the GBA: the DSP sends 0x8600, its Game Pak interrupt ends Stop, and the app
+  sends 0x0401 (answered by 0x4401) and 0x0070, after which the speaker blocks resume **[lle]**.
+  This is the counterpart of the Micro's 0x4000/0x4001; the tables' meaning is [inferred].
+- **Sleep**: armed by START held in the browser; 0x0500, then BIOS Stop with KEYCNT = 0x0008.
+  The DSP idles until the next host interrupt and sends nothing; 0x0501 after waking is answered
+  by 0x8501 **[lle]**. Only a key can end this Stop (section 12).
 - **Headphones**: unlike the Play-Yan GBA code, the NMP handles a headphone record (0x8600, w1 = 1
   plugged in).
 
@@ -466,16 +503,16 @@ Protocol details are in protocol.md 11, and full notes with addresses in [nmp.md
   the record-clear write lands on 0xFF000; the GBA side cannot tell.
 - The purpose of the dummy 256-byte FIFO read of VC 0x80000 and of the poll count written to
   VC 0xFF080 after every reset.
-- 0x400 AUDIO_MODE_SET(1, 0): sent on entering every audio scene, never confirmed. What do its
-  two words select?
+- 0x400 AUDIO_MODE_SET(1, 0): word 1 switches the 8-bit speaker stream on (protocol.md 6)
+  **[lle]**; what word 2 selects is open.
 - The meaning of 0x905(0) followed by 0x905(-1) in step-back (0x905 itself is settled, 5.3).
-- How the cartridge knows a frame or audio block has been consumed. The GBA never signals it; the
-  traces show no register access after a copy except CTRL bit 0 dropping **[run]**. So the cartridge
-  must buffer (4 frame and 32 audio buffers were always enough in the model) or pace by its own
-  clock.
+- Whether a KEYCNT-selected key ends BIOS Stop when KEYCNT bit 14 (key interrupt) is clear. The
+  Micro's 0x4000 and the NMP's 0x0400/0x0500 sleeps use KEYCNT = 0x0008, the original 0x40FF. If
+  such a key does not wake the GBA (mGBA's default, the stricter reading), these sleeps end only
+  on a cartridge record, which the Micro never sends and the NMP sends only on a headphone change.
+  A hardware question.
 - Whether anything shows the error-log FIFO, for example a debug build.
 - NMP: which byte the DSP really sends first for audio samples. The GBA treats the odd-address
   byte as first, which is proven for file data only.
-- NMP: what 0x0030 and 0x0070 do, the contents of the 0x0400 tables and of the 4 words read on
-  0x4401, and whether the DSP sends records for 0x52, 0x53, 0x60, 0x70, 0x80, 0x200 and 0x500 at
-  all.
+- NMP: the contents of the 0x0400 tables and of the 4 words read on 0x4401 (0x0030, 0x0070
+  and the commands without a record: protocol.md 11.4, 11.5).

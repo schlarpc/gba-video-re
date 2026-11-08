@@ -38,13 +38,21 @@ CPU behaviour the firmware needs (all [C]; see vc01-isa.md)
             Firmware clock = 20 MHz*(N+1)/(M*P) * 16/(div*16 + fine>>6) (ldr 0xCEF66, 0xCF068) [P].
 0x10000800 + 0x80*ch   DMA channels 0-7, IRQ 32+ch (ldr 0xC11A6 registers all 8, mus 0x177F0 ISR)
       +0x00 CS (0x70042 = start config, 0 = off)         +0x04 interrupt status, W1C (ISR writes -1)
-      +0x20 next-CB of the current CB  +0x24 bytes moved (running)  +0x2C current CB length
-      +0x30 bytes done in current CB   +0x34 current CB address; write = start / 0 = stop
-      Control block (32 bytes): next, src, dst, ctrl (len = ctrl & 0xFFFFF, bit 24 = IRQ when done,
-      0x49 data / 0x48 self-looping silence), 4 unused.  Used by the AC'97 driver (ldr 0xCECAC,
-      mus 0x347B4): data CBs chained, each followed by a self-looping 4-byte silence CB that the
-      next queued buffer overwrites in place [P].  Only channel 5 is used.  Paced by the AC'97
-      DAC rate (4 bytes per stereo frame).  [C for the protocol: the music stream runs on it]
+      +0x20 next-CB of the current CB  +0x24 transfers moved (running)  +0x2C current CB length
+      +0x30 transfers done in current CB   +0x34 current CB address; write = start / 0 = stop
+      Control block (32 bytes): next, src, dst, ctrl (len = ctrl & 0xFFFFF in 32-bit TRANSFERS, not
+      bytes; bit 24 = IRQ when done, 0x49 data / 0x48 self-looping silence), 4 unused.  Evidence
+      for the unit: vid 0x13F46 (beep) sets len = the word count of its buffer; music buffers are
+      0x1200 = 4608 bytes with len 1152, one MPEG-1 Layer III frame of stereo words (mus 0x321A0,
+      fup_sec1 0x17522); the silence CB has len 4 over exactly 16 zeroed bytes (mus 0x3458E).
+      Counting bytes runs the DAC 4x fast and the decoder 3-4x real time [C].
+      Used by the AC'97 driver (ldr 0xCECAC, mus 0x347B4): data CBs chained, each followed by a
+      self-looping silence CB that the next queued buffer overwrites in place [P].  Only channel 5
+      is used.  Paced by the AC'97 DAC rate (one transfer per stereo frame).  The decoder keeps 3
+      buffers and, after each enqueue, waits (mus 0x321DE -> 0x34540) while the next buffer to fill
+      is the one the DMA is playing (+0x34 -> CB -> buffer table gp+0x12B88).  With this model the
+      headphone output runs at exactly the codec rate and no buffer is overwritten while it plays
+      (~30,000 buffers checked) [C].
 0x10000C00  boot handshake: write 0x40000000, poll bit 0, write 0x80000000 (ldr 0xC028C).  Model:
             bit 0 reads 1 [G].
 0x10001000  interrupt controller [C]
@@ -68,7 +76,7 @@ CPU behaviour the firmware needs (all [C]; see vc01-isa.md)
       +0x18 GPREN  +0x1C GPFEN  +0x20 GPHEN  +0x24 GPLEN  +0x28 GPAREN  +0x2C GPAFEN
       pin 2  in : host doorbell (GBA CTRL bit 2); rising edge -> GPEDS bit 2 -> IRQ 42 -> ISR
                   ldr 0xC82F8 reads the command at 0xFF020 and acks with GPEDS=4 [C]
-      pin 3  in : codec alert (ISR ldr 0xC8644: AC_ALERT / HP_JACK records) [P]
+      pin 3  in : WM9712 IRQ output (headphone jack, codec alert), rising edge -> IRQ 43 [C]
       pin 4  in : SD card detect, low = present (ldr 0xCF16E) [C]
       pin 9  out: codec reset pulse (ldr 0xC6092) [P];  pins 24-29: power switches (ldr 0xCF182) [P]
       pin 30 out: Game Pak IRQ to the GBA, pulsed set/~1000 loops/clear (ldr 0xC82CA) [C]
@@ -88,10 +96,28 @@ CPU behaviour the firmware needs (all [C]; see vc01-isa.md)
             read, bit 7 go, bit 16 done; bits 22/23 'codec ready': must stay 0 for >8192 polls after
             enable (ldr 0xCEE0A treats an immediate ready as failure and then checks the codec id),
             but the music image waits up to 65536 polls for them before setting the DAC rate
-            (mus 0x34642); model: ready 3 ms after enable.
+            (mus 0x34642); model: ready 3 ms after enable.  A write that stores bits 22/23 as 0
+            with bit 0 set clears them again (re-arms the delay); read-modify-writes that copy them
+            back keep them [G, consistent with ldr 0xCEE0A, mus 0x34642, 0x344FC].  Needed by
+            FIRMWARE_DOWNLOAD: the loader jumps into the v1.11 music image with the codec running,
+            and that image's init (fup_sec1 0x33B40) fails if the bits read 1 at once (startup
+            status 1).
       Codec: Wolfson WM9712 - the loader requires vendor id 0x574D/0x4C12 (ldr 0xC6284).  Status 1
       in VC_STARTUP_INDICATION = this init failing.  Music sets VRA (reg 0x2A=1) and reg 0x2C =
       the MP3's rate (44100 for the sample).
+      Codec GPIO [C]: 0x4C config, 0x4E polarity (pin active when its level equals the bit), 0x50
+      sticky, 0x52 wake-up, 0x54 status (live for non-sticky pins, latched for sticky ones, write 0
+      to clear).  The codec's IRQ output = any latched wake-up bit, wired to VC GPIO pin 3.
+      Reg 0x54 pin levels: bit 11 = alert, ACTIVE LOW, reads 1 normally (0 makes mi_fw1 0x1D924
+      post the internal message AC_ALERT 0xC0000001 and power the codec down mid-song); bit 1 =
+      headphone jack, 1 = plugged.
+      Headphone jack: mus 0x2156E at boot registers ISR 0x20F4E on IRQ 43, reads 0x54 bit 1, sets
+      the polarity to catch the change, sticky = wake-up = 0x0802 (bits 1 and 11).  The ISR flips
+      the polarity and posts the internal message HP_JACK_STATUS_CHANGE 0xC0000000 (bit 11 with
+      polarity 0: AC_ALERT); neither is a record to the GBA.  The original images take this
+      interrupt; v1.11 and the Micro poll reg 0x54 instead.  Plugging in stops the 8-bit speaker
+      stream within 1 s, unplugging resumes it, the headphone PCM continues; with headphones at
+      power-on the music player starts without speaker blocks [C].
 ```
 
 ## Coupling to the GBA in the emulator
@@ -102,12 +128,21 @@ The GBA side (STAT bit 7, RSTAT bit 4, the windows) is the register model of
 CTRL bit 2 is a rising edge on GPIO pin 2. Reads through the pixel window (+0x500-0x6FF) convert
 RGB565 to BGR555 ([protocol.md](protocol.md) 8.2).
 
+The GBA writes commands back to back without waiting for the chip: the original sends 0x906(1)
+and 0xB00 about 1,000 GBA cycles apart, the Micro 0x400 and 0xB00 about 1,500 apart. The doorbell
+interrupt must therefore copy the command from 0xFF020 before the next one overwrites it, so the
+emulator runs the VC01 at once on a doorbell until its ISR acknowledges GPEDS bit 2. Serviced later,
+commands are lost (0x906, the Micro's 0x400, and with them the position records and the Micro's
+speaker stream).
+
 ```
-  The VC01 runs in slices of 35112 GBA cycles (1/8 frame), executing
+  The VC01 runs in slices of 1024 GBA cycles (61 us), executing
   ips/16777216 instructions per GBA cycle (ips = 50e6 by default).  The timer counts
   at the firmware's own clock in emulated time, so Nucleus ticks, SD timeouts and codec delays are
   in real time whatever ips is.  The firmware's PLL formula gives 8 MHz after boot (16 MHz after
-  FIRMWARE_LIST); 1 instruction per cycle at 8 MHz is far too slow for MPEG-4, so either the
-  formula is misread or the VPU does most of the work; 50 M instructions/s is a free choice.
+  FIRMWARE_LIST), 15 MHz while the music image plays and 37.5 MHz for video; the Micro drops to
+  8 MHz only between songs.  1 instruction per cycle at these clocks is far too slow for MPEG-4,
+  so either the formula is misread or the VPU does most of the work; 50 M instructions/s is a
+  free choice (30 M gives identical output and rates).
   The firmware never idles (tasks poll with NU_Relinquish), so the full budget is always used.
 ```

@@ -61,7 +61,7 @@ still exists in Micro but is used only by the RAM test (0x0c01df00) and firmware
 | 0x200 | 0c01f33c | 8 | u8 type (rest of word uninitialised stack) | same |
 | 0x201 | 0c01f36c | 0x108 | str dirname | same |
 | 0x300 | 0c01f398 | 8 | u32 | same |
-| 0x400 | 0c01f484 | 0xC | u32 1, u32 p2 | same |
+| 0x400 | 0c01f484 | 0xC | u32 1, u32 p2; word 1 = speaker-stream gate (mi_fw1 0x31636 copies it to gp+0xE5E4; the block producer 0x31352 runs only if it is non-zero) **[lle]** | same |
 | 0x500 | 0c01f3b8 | 0x118 | p1, p2, p3, p4, str name | same |
 | 0x600 | 0c01f45c | 0x108 | str name | same |
 | 0x700 | 0c01f3ec | 0x110 | p2, p3, str name; clears pos (0x3001248/4c), arms start timeout 0x3002730 = 60 | same |
@@ -98,6 +98,15 @@ callback (0x0c015fd8) first sends 0x906, then restores the display and uses the 
 `(rec+4)&0xFF | (rec+0xC &0xFF)<<8 | (rec+0x10 &0xFF)<<16 | (rec+8 &1)<<24`: bits 8..15 are
 compared with the current track index; bit 24 selects "still playing" vs "stopped" UI. The first
 array is a per-track byte list, the second the play order (0x3000b50, 99 x u16).
+
+Real firmware **[lle]**: auto-play is armed like the original's music-player sleep (player.md 8;
+Micro 0x0c0164xx): L+R sets the armed flag only while no 8-bit audio records arrive, so only with
+headphones plugged in. Then 0x4000 follows 4.2 s later, 0x40004000 answers, and the GBA enters Stop
+with **KEYCNT = 0x0008** (START selected, interrupt bit 14 clear; the original uses 0x40FF). mi_fw1
+sends 0x40004001 only in answer to 0x4001 (0x1f89a); it initiated no record in 60 s of auto-play,
+including the end of the queue. So the cartridge never wakes the GBA. If START ends the Stop, the
+GBA sends 0x4001, gets 0x40004001, sends 0x906 and goes on to the next track (0x600, 0x800).
+Whether a KEYCNT-selected key ends Stop without bit 14 is a hardware question (player.md 12).
 
 ## 3. IRQ responses (dispatcher 0x0c01ec34, ring pop 0x0c01e294)
 

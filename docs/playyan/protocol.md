@@ -253,8 +253,8 @@ the GBA waits for, or "-" if it waits for nothing.
 |---|---|---|---|---|---|
 | 0x200 | 0C025A4C | 8 | u8 type: 1 = video (recursive), 2 = music (current folder), 3 = the unused test scene; the other 3 bytes are uninitialised | 0x40000200 | FILE_LIST_REQUEST |
 | 0x201 | 0C025A80 | 0x108 | name: folder, or `..` | 0x40000201 | FILE_SELECT_REQUEST |
-| 0x300 | 0C025AB0 | 8 | u32 brightness from the table at 0x0C0F2500: 0x101, 0x140, 0x180, 0x1E0, 0x240, 0x2C0 (index 0-5, default 0) | - | VIDEO_MODE_SET_REQUEST |
-| 0x400 | 0C025BB0 | 0xC | u32 1, u32 p (always 0) | - | AUDIO_MODE_SET_REQUEST |
+| 0x300 | 0C025AB0 | 8 | u32 brightness from the table at 0x0C0F2500: 0x101, 0x140, 0x180, 0x1E0, 0x240, 0x2C0 (index 0-5, default 0). The video image stores it at gp+0x65C (0x18864; handler 0x11366 -> 0x953E) and applies it to the whole frame at 0x273AA; 0x101 is the identity on RGB565 (c x 257 >> 8 = c) **[lle]** | - | VIDEO_MODE_SET_REQUEST |
+| 0x400 | 0C025BB0 | 0xC | u32 1, u32 p (always 0). Word 1 switches the 8-bit speaker stream on: the handler copies the command to gp+0x9370 (music image; Micro gp+0xE5E4), and the 8-bit block producer (0x3185E; Micro 0x31352) runs only while word 1 is non-zero **[lle]** | - | AUDIO_MODE_SET_REQUEST |
 | 0x500 | 0C025AD4 | 0x118 | u32 width 60, u32 height 40, u32 0, u32 0, name at +0x14 | 0x40000500 | VIDEO_INFO_REQUEST |
 | 0x600 | 0C025B84 | 0x108 | name | 0x40000600 | AUDIO_INFO_REQUEST |
 | 0x700 | 0C025B0C | 0x110 | u32 width, u32 height, name at +0xC. The player sends 240 x 160; the video browser sends 60 x 40 for its live preview. Clears the stored position words and arms a start timeout (0x03002B10 = 60) | 0x40000700 | VIDEO_DECODE_START_REQUEST |
@@ -265,10 +265,10 @@ the GBA waits for, or "-" if it waits for nothing.
 | 0x903 | 0C025CE0 | 8 | u32 1 (step one frame while paused) | - | STEP_REQUEST |
 | 0x904 | 0C025C6C | 4 | - (resume) | - | RESTART_REQUEST |
 | 0x905 | 0C025C90 | 8 | s32 position. **Music**: absolute trackbar target 0..0x6400. **Video**: a signed step in seconds, relative to the current position (player.md 5.3): +1/-1 per send for short files, the resume time, or 0 / -1 during step-back | - | PLAY_POSITION_SET_REQUEST |
-| 0x906 | 0C025CB8 | 8 | u32 1 = position indications on, 0 = off (sent 0 before the GBA stops itself during music, 1 after) | - | PLAY_POSITION_IND_SET_REQUEST |
-| 0xB00 | 0C025D08 | 8 | u32 volume 0..56: user level (0..36, default 18) x 56 / 36; 0 = mute (pause, resume seek) | - | VOLUME_SET_REQUEST |
+| 0x906 | 0C025CB8 | 8 | u32 1 = position indications on, 0 = off (sent 0 before the GBA stops itself during music, 1 after). While on, the music image sends one position record per second **[lle]** | - | PLAY_POSITION_IND_SET_REQUEST |
+| 0xB00 | 0C025D08 | 8 | u32 volume 0..56: user level (0..36, default 18) x 56 / 36; 0 = mute (pause, resume seek). The cartridge also applies it to the 8-bit speaker stream, s x v / 32 truncating (28/32 at the default level), before the GBA's own gain (7.4) **[lle]** | - | VOLUME_SET_REQUEST |
 | 0xD00 | 0C025D54 | 0x10 | u32 level, u32 0, u32 0. Level = setting (0..6) x 15 / 6 | - | AUDIO_3D_ENHANCEMENT_REQUEST |
-| 0xD01 | 0C025D7C | 8 | u32 (b << 8) \| 0x800F, b from the 2-byte table at 0x0C0F2518 = {15, 0}: setting 0 sends 0x8F0F, setting 1 sends 0x800F | - | TONE_CONTROL_REQUEST |
+| 0xD01 | 0C025D7C | 8 | u32 (b << 8) \| 0x800F, b from the 2-byte table at 0x0C0F2518 = {15, 0}: setting 0 sends 0x8F0F, setting 1 sends 0x800F. The video image keeps it at gp+0x630 and writes it to codec register 8 (0x111CE) [fw] | - | TONE_CONTROL_REQUEST |
 | 0x2000 | 0C025D2C | 0xC | u32 sound ID, u32 volume = clamp(level x 63 / 36, 16, 63), with level = user volume x 3 / 4 (0x0C0240A4, 0x0C024080) | records 0x80001000 with audio | OPERATION_SOUND_REQUEST |
 | 0x8000 | 0C025DA8 | 4 | - (list the update file's parts) | 0x40008000 | FIRMWARE_LIST_REQUEST |
 | 0x8001 | 0C025DCC | 8 | u8 kind mask: 1 = video, 2 = music (other bytes uninitialised) | 0x80000100 from the new image on success; 0x40008001 only on failure ([firmware.md](firmware.md) 4) | FIRMWARE_DOWNLOAD_REQUEST |
@@ -357,12 +357,16 @@ is diagnostic only.
 | 0x80010001 | WAKEUP_INDICATION | reply to the wake kick after 0x10000 sleep |
 | 0x40800000 | RESET_STANDBY_CONFIRM | the GBA then reloads fw0 or fw1 |
 
-IDs in the firmware's name table that the GBA does **not** handle, so they log error 1. ALERT is
-really sent: by the Micro's loader right after VC_STARTUP_INDICATION, and by the `playan.fup` music
-image when a folder is entered **[lle]**. The list:
-0x80100000 ALERT_INDICATION, 0xC0000000 HP_JACK_STATUS_CHANGE, 0xC0000001 AC_ALERT
-[fw-names]. The original GBA code has no headphone-state input. The GBA never learns whether
-headphones are plugged in; the cartridge decides whether to send audio data [inferred].
+An ID in the firmware's name table that the GBA does **not** handle, so it logs error 1:
+0x80100000 ALERT_INDICATION [fw-names]. It is really sent: by the Micro's loader right after
+VC_STARTUP_INDICATION, and by the `playan.fup` music image when a folder is entered **[lle]**. The
+table also names 0xC0000000 HP_JACK_STATUS_CHANGE and 0xC0000001 AC_ALERT [fw-names], but these
+are internal messages of the VC firmware, never records posted to 0xFF000 **[lle]**. The original
+GBA code has no headphone-state input, and the GBA never learns whether headphones are plugged in.
+The cartridge decides: plugging in stops the 8-bit speaker stream within 1 s, unplugging resumes
+it, the headphone PCM continues throughout, and no record is sent; with headphones plugged in at
+power-on the music player starts without speaker blocks **[lle]** (jack path:
+[vc01-hardware.md](vc01-hardware.md)).
 
 ### 7.4 The stream record 0x80001000
 
@@ -371,8 +375,8 @@ headphones are plugged in; the cartridge decides whether to send audio data [inf
 | rec[1] | VC address of a video frame, or 0 for none |
 | rec[2] | not read by the GBA |
 | rec[3] | VC address of an audio block, or 0 for none |
-| rec[4] | audio block size in bytes, total for both channels, at most 0x480. Music sends 0x480-byte blocks from two alternating buffers; sound effects 0x2BA-byte blocks **[lle]**. The stream is paced by the cartridge's own audio DMA to its headphone codec **[lle]**; the model's throttle is incomplete (it decodes about 3x too fast), so record rates measured in it are not reliable (larger values are clamped and log error 3; 0 logs error 3 and is skipped) |
-| rec[5] | music: trackbar position 0..0x6400. Stored at 0x03001680 |
+| rec[4] | audio block size in bytes, total for both channels, at most 0x480. Music sends 0x480-byte blocks from two alternating buffers; sound effects 0x2BA-byte blocks **[lle]**. Larger values are clamped and log error 3; 0 logs error 3 and is skipped. The stream is paced by the cartridge's AC'97 DAC (below) |
+| rec[5] | music: trackbar position 0..0x6400, in a record without audio sent once per second while 0x906(1) is in force **[lle]**. Stored at 0x03001680 |
 | rec[6] | music: elapsed seconds; video: elapsed **milliseconds**. Stored at 0x03001684 |
 | rec[7] | not read |
 
@@ -388,6 +392,18 @@ Each sample is a signed 8-bit value. The GBA scales it in place: `s = clamp((s x
 -128, 127)`, which is x1.5 for video, x1.0 for music and x0.375 for effects. Ring A feeds **FIFO A,
 routed to the right speaker only**; ring B feeds FIFO B, left only (SOUNDCNT_H = 0xA90E). So the
 first half of each block plays on the right **[code]**. The output stage is in player.md 6.
+
+**Pacing [lle].** The cartridge needs no acknowledgement from the GBA: its decoders wait for the
+AC'97 DMA ring ([vc01-hardware.md](vc01-hardware.md)), so records follow the DAC clock. Halving the
+DAC rate halves the 8-bit record rate with identical content. Measured on the real firmware:
+
+| stream | measured |
+|---|---|
+| music, headphone DAC | exactly the codec rate: 32,000 / 44,100 / 48,000 frames/s |
+| music, 8-bit blocks | 28.43-28.48 blocks/s (16,384 / 576 = 28.44); the speaker stream leads by a constant +0.05..+0.10 s, no drift over 145 s |
+| video, ASF | 30.02 frames/s, headphone 8,000 Hz, 8-bit 8,192 Hz; A/V offset (frame time vs audio delivered) -0.06..+0.05 s over 95.7 s, no drift |
+| video, MP4 | 29.97 frames/s, headphone 44,100 Hz, 8-bit 8,192 Hz; A/V offset +0.01..+0.05 s |
+| music position records | 1 per second |
 
 **Video** (rec[1] != 0, state == video, frame display not suppressed by 0x030016AC):
 
@@ -509,7 +525,10 @@ primitives, streaming mode, audio and video paths are unchanged **[code]**. The 
   (8: u32 max bytes = 0x100), 0x3002 FILE_SEEK (0xC: builder present, no caller), 0x3003
   FILE_CLOSE (4), 0x4000 VC_AUTO_PLAY_START (0x1A8: play mode, two counts, two u16[100] arrays:
   track flags and play order), 0x4001 VC_AUTO_PLAY_STOP (4). The names are [fw-names]. The
-  playlist reading of 0x4000/0x4001 is [inferred].
+  playlist reading of 0x4000/0x4001 is [inferred]. On the real firmware, with headphones plugged
+  in, L+R leads to 0x4000 4.2 s later; after 0x40004000 the GBA enters Stop with KEYCNT = 0x0008.
+  The music image sends 0x40004001 only in answer to 0x4001 (mi_fw1 0x1F89A) and initiates no
+  record during auto-play, including at the end of the queue **[lle]** (player.md 8, 12).
 - **Callback table**: ROM 0x0C0E7848, 20 IDs. The new IDs are 0x40003000-0x40003003,
   0x40004000 and 0x40004001.
   - **0x40003001**: if rec[1] == 0, copy rec[2] bytes (not clamped) from VC **rec[3]** into the
@@ -701,10 +720,10 @@ Strings are 16-bit characters ending in 0. String commands always send 0x106 wor
 | 0x0301 | 2 | 1: byte count (≤ 0x201) | 0x4301 | read; the destination is held on the GBA side |
 | 0x0302 | 4 | 1: 0, 2-3: u32 offset, low word first | 0x4302 | seek in the open file |
 | 0x0303 | 2 | - | 0x4303 | close file |
-| 0x0400 | 0xCE (app) | 1: play mode, 2: n1, 3: n2, 4: current index, 5-104: table A, 105: p5, 106-205: table B | 0x4400, then 0x4401 | background play: after about 30 s idle while playing, the GBA hands over the play list and blanks the screen [inferred tables] |
-| 0x0401 | 2 | - | 0x4401 | leave background play |
-| 0x0500 | 2 | - | - | sleep; the GBA then enters Stop. The DSP powers the codec down; no record **[lle]** |
-| 0x0501 | 2 | - | 0x8501 | wake |
+| 0x0400 | 0xCE (app) | 1: play mode, 2: n1, 3: n2, 4: current index, 5-104: table A, 105: p5, 106-205: table B | 0x4400, then 0x4401 | background play: once armed (L+R or START held while playing; app 0x02031880), the countdown is clamped to 0x104 frames, so 0x0400 follows about 4.3 s later; the GBA hands over the play list, blanks the screen and enters Stop with KEYCNT = 0x0008. The DSP (2:DD74) saves its state, answers 0x4400 and keeps playing the queue **[lle]** [inferred tables] |
+| 0x0401 | 2 | - | 0x4401 | leave background play: the DSP (2:DD8C) restores and answers 0x4401 (2:BD00) **[lle]**. Sent only after the GBA has woken: unplugging headphones makes the DSP send 0x8600 within 9 frames, whose Game Pak interrupt wakes the GBA; then 0x0401, 0x4401, 0x0070, and the 8-bit blocks resume **[lle]** |
+| 0x0500 | 2 | - | - | sleep (armed by START held in the browser); the GBA then enters Stop with KEYCNT = 0x0008. The DSP (2:DDCF) saves IMR and sets it to 0x0200 (host interrupt only), lowers CLKMD, powers the codec down and executes `idle 3`; no record **[lle]** |
+| 0x0501 | 2 | - | 0x8501 | wake: the host interrupt of this command ends the DSP's idle; it restores its state and answers 0x8501 (2:BD35) **[lle]**. The DSP sends no record while idle, so only a key can wake the GBA, and KEYCNT = 0x0008 leaves the keypad interrupt off (player.md 12) |
 | 0x0800 | 2 | - | 0x4800 | sent before loading a validated meteor.fup image: the DSP replies 0x4800 and jumps to its on-chip ROM bootloader, ready for a new upload **[lle]** |
 
 ### 11.5 Status records

@@ -146,6 +146,15 @@ This is a real bug, measured by running the routine in the emulator, but **unrea
 disabled low-rate formats could feed it. It is unchanged in the Micro's music image and in the
 v1.11 update. **[fw]**
 
+On the real firmware the stream is reproduced exactly from the headphone PCM **[lle]**: vol is the
+GBA's VOLUME_SET word (0x1C at the default level), applied as trunc(s x vol / 32); the resampler
+(0x21BC0) emits a sample when its phase quotient changes; each block is 576 right-channel bytes,
+then 576 left. The stream runs only while word 1 of AUDIO_MODE_SET (0x400) is non-zero and no
+headphones are plugged in. The original images drop the first sample after power-on: py_fw1
+0x33FF6 (and py_fw0 0x1B57C) test the previous stream's rate, while the Micro (mi_fw1 0x335B0) and
+v1.11 (fup_sec1 0x3334C) store the new rate first and test that. So py_fw1's speaker stream is the
+v1.11 and Micro stream shifted by one sample.
+
 ## 6. Nintendo MP3 Player: a TI TMS320C54x DSP
 
 The GBA loader (0x08063D30 in the boot program) uploads a standard **C54x boot table** from ROM

@@ -48,7 +48,7 @@ decode fault. With the peripherals of [vc01-hardware.md](vc01-hardware.md) model
 images (loader, video, music and both `playan.fup` images) boot to status 0, and the real firmware
 serves the real GBA ROM (README, "Real firmware"). A C port of the emulator runs at 120-160 million
 instructions per second and matches the Python model instruction by instruction on all the tests
-above. The four behaviours marked "real firmware" below were found that way: the routines in the
+above. The behaviours marked "real firmware" below were found that way: the routines in the
 table do not exercise them.
 
 ## Coverage
@@ -196,8 +196,11 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
                         (o27 = (w2 & 0x7ff)<<16 | w1 ; rb = w2>>11)
 0010 1111 000d dddd | o27 | bbbbb    o27 bits 1..0: 00 ld, 01 st, 10 ldh, 11 sth at (rb + o27&~3)
                                      [C] ld; ldh [C MPEG-4 bit reader]; st/sth [P]
-0010 1111 1kkd dddd | o27 | bbbbb    o27 bit1 = 1: ldsh/sth rd, (rb + (o27&~3) + k)  [C ldsh: MPEG-4 VLC sign
-                                     bit at py_fw0 0x204bc -> 13/13 Garage hashes in the LLE run; sth P]
+0010 1111 1kkd dddd | o27 | bbbbb    o27 bits 1..0 = 10: ldsh rd, (rb + (o27&~3) + k)  [C MPEG-4 VLC sign
+                                     bit at py_fw0 0x204bc -> 13/13 Garage hashes in the LLE run]
+                                     o27 bits 1..0 = 11: ldsb rd, (rb + (o27&~3) + k), a SIGNED BYTE
+                                     LOAD, not a halfword store [C real firmware: 135 sites in the AAC
+                                     code of mi_fw0/fup_sec0; as a store every AAC frame fails]
                                      o27 bit1 = 0: ldb/stb rd, (rb + (o27&~1) + k)   (byte lane k = 0..3;
                         o27 bit0 = store)  [C] loader reads the fup section count with
                         '2fc2 5204 c000' = ldb r2,(gp+0x5206); py_fw1 0x212a8 rebuilds a
@@ -211,7 +214,7 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
 * op5 9, 17, 29; misc o=19; 2e op 6/7; 2f op 2.  All rare (< 0.01% of code bytes).
 * 4x x nibble 7/b/d/f (odd, not 1/3/5/9): 1 occurrence in reachable code.
 * 3x with bit7 set but bits 6-4 != 111 (2 occurrences).
-* rti, ei/di executed only in the LLE real-firmware run (tmp/playyan/emu/lle).
+* rti, ei/di executed only in the LLE real-firmware run.
 ```
 
 ## Vector instructions
@@ -259,7 +262,12 @@ Encoding
                imm16 = (h3 & 0xfc00) | b when i=1 [C xvid TAN1/2/3, SQRT2 0xB505]
                h4 = [14 SETF][13..11 cond][10 CLRA][9 ACC][8..5 REP: 1<<n, 7 = r0 times][4..3 SRU op]
                     [2..0 SRU reg, 7 none]
-  memory (op 0-3): b = RRRR bbb sss: REP 1<<R, base r[bbb], stride r[sss] (7: one row = 16/32 B)
+  memory (op 0-3): b = RRRR bbb sss: REP 1<<R for R = 0..6, R = 7 = 64 (not 128), base r[bbb],
+               stride r[sss] (7: one row = 16/32 B).  REP 7 [C real firmware]: the patent's REPn
+               allows n in {2,4,8,16,32,48,64}; memory REP 7 occurs only at the 4 stores of the AAC
+               short-window reorder (mi_fw0/fup_sec0 0x3d72, 64 rows = one 4 KB spectrum); 128
+               would wrap the 64-row VRF and overwrite the next 4 KB buffer (75 bad frames of 3,201;
+               with 64: none off by more than 2 LSB)
                vld: D <- mem[base + 16*(sx10(A)<<1 | i) (+2*(h3>>13) 80-bit)], 80-bit: offset reg
                h4 bits 7..5, lane condition h4 bits 13..11; vst: A -> mem[base + 32*D + 16*i]
                (direction from A bit9; 80-bit: A-field encoding incl. byte mode); op0/op1 ignore
@@ -312,5 +320,6 @@ Open
     store model (possibly a firmware bug).  Op 11 vs 10, op 15/23/29/31/40 only [P] from single kernels.
   Accumulator saturation (only reachable with int32-overflowing IMDCT input), op17 rounding, h3 bit 4, A-field
     bit 2, cond 1 -- no kernel discriminates.  op2 vs op3 individually.
-  AAC: real-bitstream frame decode not run (scalar FAAD2 front end, scalefactor gain 0x93d4, M/S, TNS).
+  (AAC real-bitstream decode now runs in the LLE run, scalar front end included: 3,201/3,201 frames
+    of the sample MP4 within 2 LSB of ffmpeg/FAAD2.)
 ```

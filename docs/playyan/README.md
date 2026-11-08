@@ -1,4 +1,4 @@
-# Play-Yan, Play-Yan Micro and Nintendo MP3 Player (partial)
+# Play-Yan, Play-Yan Micro and Nintendo MP3 Player
 
 Nintendo's AGS-006 cartridges play the user's own video and music from an SD card. They are not
 GBA Video cartridges: they carry no content, and the decoding is done by a media chip on the
@@ -13,12 +13,15 @@ and copies finished frames and audio blocks out of it.
 
 Common dumps are 4 MiB, the 1 MiB image mirrored four times; the first 1 MiB matches No-Intro.
 
-**This lane is partial.** The GBA side is documented from the code of all three ROMs. The firmware
-images are extracted and their instruction set decoded, but their codecs are not reimplemented
-(except G.726, checked against Sun's reference code), so there is no decoder, no manifests and no
-verification of decoded output for this family yet. Everything
-here comes from static analysis of the code, checked by running all three ROMs in mGBA against an
-emulated cartridge built from [protocol.md](protocol.md) (below).
+The GBA side is documented from the code of all three ROMs, and the cartridges' own firmware runs in
+our emulator under the real GBA ROMs ([Real firmware](#real-firmware)). **Every codec the cartridges
+decode has a standalone decoder, in Rust and C, bit-exact against that firmware**: MPEG-4 Part 2,
+G.726, MP3 and AAC-LC on the VC01 images, with the ASF and MP4 containers, the frame, thumbnail and
+8-bit audio output stages, and the Nintendo MP3 Player's DSP MP3 decoder
+([decoders.md](decoders.md)). The ground truth is the real firmware in our emulator, not a capture
+from hardware: [verify/playyan](../../verify/playyan/README.md) holds hash manifests of 61 whole
+files played that way (29,258 frames, 41,191 headphone buffers, 30,142 8-bit blocks) and lists the
+emulator assumptions they rest on. `gbav verify` and `cargo test` check the decoders against them.
 
 ## Findings
 
@@ -59,6 +62,7 @@ emulated cartridge built from [protocol.md](protocol.md) (below).
 | [vc01-hardware.md](vc01-hardware.md) | The VC01's peripherals as the firmware uses them: interrupts, timer, GPIO, SD card over SPI, AC'97 audio, DMA, the clock |
 | [micro.md](micro.md) | Play-Yan Micro: differences from the original, address by address |
 | [nmp.md](nmp.md) | Nintendo MP3 Player: working notes, address by address |
+| [decoders.md](decoders.md) | The decoders: what each reproduces of the firmware (its departures from the standards), exactness per codec and the oracle behind it, commands, inputs that stay undefined |
 | [prior-art.md](prior-art.md) | shonumi's articles, documentation and GBE+, compared element by element |
 
 ## Real firmware
@@ -71,25 +75,54 @@ to a patched mGBA running the real GBA ROM. Neither side is simulated at a high 
   RESET_STANDBY, music image, folder walk. With `playan.fup` on the SD card, the loader reads and
   checks every block and starts the v1.11 image, and the GBA carries on with it.
 - Music: browse, ID3 tags parsed by the firmware, play, fast-forward, rewind, pause, end of song
-  and the move to the next song, all driven by the firmware's own records. The MP3 kernels are
-  bit-exact against fixed-point references, and their output is within 1 LSB of ffmpeg.
-- Video: the firmware decodes the ASF files itself. **Its thumbnails of the Garage Game files
-  match the hashes in the GBA ROM's table**, an end-to-end check of the MPEG-4 decoder, the colour
-  conversion and the 240x176 to 60x40 crop and scale (centred 240x160, then a 4:1 box filter), and
-  the GBA ROM itself recognises them and starts the games. Full videos play correctly: over 274
-  frames of Nintendo's sample, the frames the GBA shows are within one 5-bit step of an ffmpeg decode
-  put through the firmware's colour maths (49.8 dB, 96.7 % of pixels identical; intra frames
-  bit-exact against the firmware's own IDCT, the rest IDCT drift). This needed one cartridge fact:
-  the pixel window converts the firmware's RGB565 to BGR555 ([protocol.md](protocol.md) 8.2).
+  and the move to the next song, all driven by the firmware's own records, including the position
+  record once per second.
+- Video: the firmware decodes the ASF and MP4 files itself. **Its thumbnails of the Garage Game
+  files match the hashes in the GBA ROM's table**, an end-to-end check of the MPEG-4 decoder, the
+  colour conversion and the 240x176 to 60x40 crop and scale (centred 240x160, then a 4:1 box
+  filter), and the GBA ROM itself recognises them and starts the games. This needed one cartridge
+  fact: the pixel window converts the firmware's RGB565 to BGR555 ([protocol.md](protocol.md) 8.2).
+- Pacing: the cartridge paces everything by its AC'97 DAC, which needs no acknowledgement from the
+  GBA. The headphone output runs at exactly the codec rate, the music speaker stream at
+  28.43-28.48 blocks/s (16,384 / 576 = 28.44), video at 30.02 frames/s (ASF) and 29.97 (MP4) with
+  the A/V offset within ±0.06 s and no drift ([protocol.md](protocol.md) 7.4).
+- Sleep, the Micro's auto-play and the MP3 Player's background play and sleep all run; they need
+  arming (L+R, or START held), and music-player sleep needs headphones, because every speaker block
+  resets the countdown ([player.md](player.md) 8, 11). The headphone jack only switches the
+  speaker stream; the GBA is never told ([protocol.md](protocol.md) 7.3).
+
+Accuracy of the real firmware against independent decoders (identical across the images that
+play each file; our decoders reproduce the firmware itself bit-exactly, [decoders.md](decoders.md)):
+
+| codec / file | output | reference | SNR | max error | identical |
+|---|---|---|---|---|---|
+| MP3 `sample_music.mp3`, 44.1 kHz | headphone | minimp3 | 95.3 dB | 1 | 98.31 % |
+| | | ffmpeg mp3float | 95.2 dB | 1 | 98.27 % |
+| | | ffmpeg mp3 (fixed point) | 83.7 dB | 1 | 75.20 % |
+| MP3 tones, 32 / 44.1 / 48 kHz | headphone | minimp3 | 74.2 / 83.4 / 76.8 dB | 1 | 89.58 / 98.76 / 94.26 % |
+| MP3 chirp, 44.1 kHz | headphone | minimp3 | 80.3 dB | 24 | 97.26 % |
+| MP3, all files | 8-bit blocks | the firmware's reduction of its own headphone PCM | - | 0 | 100 % |
+| G.726-32, `sample_movie.asf` and the 13 Garage ASFs | headphone | Sun g72x (high nibble first) | exact | 0 | 100 % |
+| | | ffmpeg adpcm_g726 | 23.8-53.7 dB | - | 25-99.7 % (not ITU-exact here) |
+| AAC-LC, both MP4 samples | headphone | ffmpeg aac, aac_fixed, FAAD2 | 82.0 dB | 2 | all 3,201 frames within 2 LSB |
+| MPEG-4 SP, `sample_movie.asf` | frames | ffmpeg (xvid IDCT) + the firmware's colour maths | 50.8 dB mean, 43.9 min | 2 levels | 97.31 % of pixels (I-frames 99.03 %) |
+| MPEG-4 SP, Garage ASFs | frames | same | 54-64 dB mean | 2 levels | 97.7-99.9 % |
+| MPEG-4 SP, MP4 samples | frames | same | 45.1 dB mean, 39.5 min | 2 levels | 89.8 % |
+
+The MP3 residual is the ±1 LSB rounding of fixed-point synthesis. The video differences are IDCT
+drift inside each GOP: intra frames are bit-exact against the firmware's own IDCT, which is not one
+of ffmpeg's.
 - The Micro boots and reads its key file through the firmware.
 - **Nintendo MP3 Player:** the real DSP firmware runs on an emulated TMS320VC5416 under the real
   GBA ROM through upload, boot, mount, menu, ID3, playback, seek and the `meteor.fup` update. **Its
   decoded MP3 matches ffmpeg to within 1 LSB** (SNR 96.3 dB, 98.6 % of samples identical) on
-  Nintendo's sample file ([c54x-hardware.md](c54x-hardware.md)). This run corrected four points of
+  Nintendo's sample file ([c54x-hardware.md](c54x-hardware.md)). Its speaker stream runs at 28.40
+  blocks/s. This run corrected four points of
   the static reading: 0x0030 and 0x0070, the `meteor.fup` entry flag and the directory entry type.
 
 Claims tagged **[lle]** in the other documents come from these runs. The emulator,
-its mGBA patch and the traces are local and not in this repository.
+its mGBA patch and the traces are local and not in this repository; the capture and oracle scripts
+that drive it are in `tools/playyan/`.
 
 ## Emulator check (high-level cartridge model)
 
@@ -123,14 +156,13 @@ V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/
 
 ## Open issues
 
-- Not yet exercised in any model: music-mode sleep, the Micro's auto-play (0x4000/0x4001), and the
-  MP3 Player's background play and sleep.
-- Standalone bit-exact decoders (C and Rust) for this family, from the firmware's kernels; AAC on a
-  real bitstream (its scalar front end is not modelled yet).
-- The emulator's audio throttle: the real music firmware decodes about 3x faster than real time in
-  the model (the audio comes out right, but record rates measured there are not).
-- How the cartridge paces frames and audio blocks that
-  the GBA never acknowledges, and the roles of CTRL bit 4 and the GO register
-  ([player.md](player.md) 12).
+- The ground truth is our emulator, not hardware. Its assumptions (CPU model, DAC rate, peripheral
+  model, the pixel window's colour swap) are listed in [verify/playyan](../../verify/playyan/README.md).
+- Whether a key selected in KEYCNT ends BIOS Stop when the keypad interrupt bit is clear: the
+  Micro's auto-play and the MP3 Player's background play and sleep enter Stop with KEYCNT = 0x0008,
+  and the cartridges send no record that would wake the GBA ([player.md](player.md) 12).
+- The roles of CTRL bit 4 and the GO register ([player.md](player.md) 12).
+- Inputs on which the firmware's output is not a function of the file (mixed blocks on the VC01
+  music image, oversized G.726 payloads, a few corrupt-stream cases): [decoders.md](decoders.md).
 - The VC01's real clock rate is unknown (the firmware's own PLL formula gives 8-16 MHz, which looks
   too slow), so the emulator's instruction rate is a free choice.

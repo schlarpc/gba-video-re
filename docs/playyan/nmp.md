@@ -4,7 +4,10 @@
 > [protocol.md](protocol.md) 11 has the corrected text: 0x0030 word 1 enables the 8-bit audio stream
 > to the GBA (not an audio reset); 0x0070 switches position records (not sample streaming); the
 > `meteor.fup` entry flag is bit 1 of byte +9, not +0xD; the directory entry type is 0 = folder,
-> 2 = file, with the file size at +0x208.
+> 2 = file, with the file size at +0x208. Later runs corrected the sleep paths too: background
+> play (0x0400) and sleep (0x0500) need arming (L+R, or START held), not about 30 s of idle; arming
+> clamps the countdown to 0x104 frames (about 4.3 s); and both enter Stop with KEYCNT = 0x0008
+> (protocol.md 11.4, player.md 11).
 
 Scope: `Nintendo MP3 Player (Europe) (En,Fr,De,Es,It).gba`, first 1 MiB (sha1 `b7c517f1...`), mapped
 at 0x08000000. Everything below is read from the ROM's ARM/Thumb code unless tagged.
@@ -187,10 +190,10 @@ string commands always send 0x106 halfwords (ID + 0x105 chars incl. NUL, rest st
 | 0x0301 | 2 | 1: byte count to read (<= 0x201) | 7 | 0x4301 | read from open file; destination remembered GBA-side |
 | 0x0302 | 4 | 1: param2 (0), 2-3: u32 offset (low hw first) | 8 | 0x4302 | seek in open file |
 | 0x0303 | 2 | - | 9 | 0x4303 | close file |
-| 0x0400 | 0xCE (app) / 0xC (loader lib) | 1: play mode, 2: n1, 3: n2, 4: current index, 5-104: table A (n1 <= 100 words), 105: p5, 106-205: table B (n2 <= 100) | 10 | 0x4400, later 0x4401 | **background play**: after ~30 s idle while playing (app 0x02031880) the GBA hands the cart the play list and current index and blanks [inferred: tables are play order / file list] |
-| 0x0401 | 2 | - | 11 | 0x4401 | leave background play (app 0x02031228) |
-| 0x0500 | 2 | - | 12 | none handled | cart sleep (app 0x02031598); GBA enters Stop (SWI 3) |
-| 0x0501 | 2 | - | 13 | 0x8501 | cart wake |
+| 0x0400 | 0xCE (app) / 0xC (loader lib) | 1: play mode, 2: n1, 3: n2, 4: current index, 5-104: table A (n1 <= 100 words), 105: p5, 106-205: table B (n2 <= 100) | 10 | 0x4400, later 0x4401 | **background play**: once armed (app 0x02031880; L+R or START held, then ~4.3 s) the GBA hands the cart the play list and current index, blanks and enters Stop (KEYCNT 0x0008) [inferred: tables are play order / file list]. DSP: 2:DD74 answers 0x4400 and keeps playing **[lle]** |
+| 0x0401 | 2 | - | 11 | 0x4401 | leave background play (app 0x02031228); DSP 2:DD8C -> 0x4401 (2:BD00). Sent after a wake, e.g. by the 0x8600 record on headphone unplug **[lle]** |
+| 0x0500 | 2 | - | 12 | none handled | cart sleep (app 0x02031598); GBA enters Stop (SWI 3, KEYCNT 0x0008). DSP 2:DDCF: IMR = 0x0200, lower CLKMD, codec off, `idle 3` until the next host interrupt; no record **[lle]** |
+| 0x0501 | 2 | - | 13 | 0x8501 | cart wake; DSP answers 0x8501 (2:BD35) **[lle]** |
 | 0x0800 | 2 | - | 14 | 0x4800 | sent after a good meteor.fup read [inferred: "prepare for firmware replacement"] |
 
 Commands whose responses the dispatcher does not know (0x4030, 0x4052, 0x4053, 0x4060, 0x4070,
@@ -315,7 +318,8 @@ Identical to the Play-Yan player's stage:
 
 ## 9. Open questions
 - Which byte the cart really puts first on the wire for samples (confirms the odd-first reading).
-- Meaning of image header words hw1/hw2 (0x7FFF, 0xF800) and of the 0x30/0x70 commands.
+- Meaning of image header words hw1/hw2 (0x7FFF, 0xF800). (0x30/0x70 and the commands without a
+  record: protocol.md 11.4, 11.5 **[lle]**.)
 - Exact contents of the 0x0400 tables and the 4 words read from idx C on 0x4401.
-- Whether the cart sends records for 0x52/0x53/0x60/0x70/0x80/0x200/0x500 at all.
+- Whether START wakes the KEYCNT = 0x0008 Stop after 0x0400/0x0500 (player.md 12).
 - Registers 0x0E002000 / 0x0E00A000: present in the driver, never called.
