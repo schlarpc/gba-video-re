@@ -19,6 +19,9 @@ tags:
   separate firmware analysis ([firmware.md](firmware.md)). It is used only to
   label IDs whose behaviour the GBA code already shows.
 - **[prior]**: from shonumi's documentation or GBE+, and not observable in the GBA code.
+- **[run]**: observed in bus traces of the real ROM running in mGBA against an emulated cartridge
+  (README, "Emulator check"). This shows what the GBA does; the cartridge side of such a run is
+  our model, not the hardware.
 
 The ROM is linked to run from the wait-state-2 mirror, so all Play-Yan code addresses are
 `0x0Cxxxxxx`. Subtract 0x0C000000 to get a file offset. "VC address" means an address in the media
@@ -80,10 +83,10 @@ CTRL bits **[code]**. Idle value 0x0A (bits 1 and 3), set by 0x0C0243F4.
 | bit | use |
 |---|---|
 | 0 | Read request. Set before a block read, then wait for RSTAT bit 4 and DMA. Cleared after each 0x200-byte chunk, or held for a whole transfer in streaming mode (section 3.4) |
-| 1 | IRQ acknowledge. The interrupt handler sets it and clears it (two writes) before it reads the record. After the first interrupt the idle value is 0x08 |
+| 1 | Read restart. The interrupt handler pulses it (set, clear) before it reads the record, and a block read pulses it before reloading the address after an interrupt. In the emulator traces every one of 4,343 pulses is followed at once by MODE 0x78 and a new address **[run]**, so it marks the start of a new read rather than only acknowledging the interrupt. After the first interrupt the idle value is 0x08 |
 | 2 | Doorbell. Set then cleared after a command has been written to the command mailbox (0x0C02471C) |
 | 3 | Active-low reset of the media chip. Cleared, held for a counted delay (2000 loop iterations at 0x0C024450; 1000 on the boot path), then set |
-| 4 | Pulsed once (0x1A, then 0x0A) at the start of the title scene, before any upload (0x0C0101B8). Purpose unknown |
+| 4 | Pulsed once at the start of the title scene, before any upload (0x0C0101B8). Purpose unknown; nothing observed depends on it **[run]**. This pulse reads CTRL back (read-modify-write at 0x0C01036C) instead of using the shadow, so CTRL must be readable: a register that reads 0 would hold the chip in reset |
 
 ## 3. Transfer primitives (original)
 
@@ -101,13 +104,14 @@ therefore never sees an ADDR/MODE sequence interrupted by the handler's own sequ
 1. Driver reset (0x0C0243F4): CTRL = 0x0A. Clear the lock, pending, overflow and restart flags,
    set 0x03001660 = 0xFFFFFFFF and 0x03001664 = 0 (their purpose is unknown).
 2. Reset pulse on CTRL bit 3.
-3. **Dummy FIFO read** (0x0C024E80): MODE = 0x28, ADDR = 0x00080000, GO; then 0x80 times: wait
-   STAT bit 7, read a halfword from 0x09000000. The 256 bytes go to a stack buffer and are not
-   used.
+3. **Dummy FIFO read** (0x0C024E80): MODE = 0x28, ADDR = 0x00080000, GO; then one read of
+   0x09000000 at once, without a STAT wait, and 0x80 more, each after a STAT bit-7 wait **[run]**.
+   The data goes to a stack buffer and is not used.
 4. A second reset pulse.
 5. Poll STAT bit 7 (0x09000006). Pulse reset again every 0x8000 polls. After 0x100000 polls the GBA
    hangs in a tight loop (0x0C0250E8, 0x0C0251C4; 0x0C024F8C hangs the same way).
-6. Write the poll count as a 32-bit value to **VC 0x000FF080** (mode 0x70).
+6. Write the poll count as a 32-bit value to **VC 0x000FF080** (mode 0x70): the number of STAT
+   reads that found the chip not ready since the last reset release (37 polls give 0x25) **[run]**.
 
 ### 3.3 Block write (0x0C0247D4; wrappers 0x0C0248B4 without wait, 0x0C0248F8 with wait)
 
@@ -177,7 +181,7 @@ control register that starts the processor **[inferred]**.
 | 0x000EC400-0x000FEFFF | 0x12C00 | RAM-test area (section 5.3) |
 | 0x000FF000 | 0x20 | **response mailbox** (one 32-byte record) |
 | 0x000FF020 | up to 0x118 | **command mailbox** |
-| 0x000FF080 | 4 | host-sync word: the number of status polls before the chip came ready after reset |
+| 0x000FF080 | 4 | host-sync word: the number of not-ready status polls after the last reset release |
 | 0x10000400 | 4 | start register: 0xA5A50032 |
 | record-supplied | | listing, ID3 block, thumbnails, video frames and audio blocks. Their addresses arrive in the response records (section 7); the GBA never assumes them |
 
@@ -258,7 +262,7 @@ the GBA waits for, or "-" if it waits for nothing.
 | 0x902 | 0C025C48 | 4 | - (pause) | - | PAUSE_REQUEST |
 | 0x903 | 0C025CE0 | 8 | u32 1 (step one frame while paused) | - | STEP_REQUEST |
 | 0x904 | 0C025C6C | 4 | - (resume) | - | RESTART_REQUEST |
-| 0x905 | 0C025C90 | 8 | s32 position. **Music**: absolute trackbar target 0..0x6400. **Video**: a signed step (player.md 5.3), the resume time in seconds, or 0 / -1 during step-back | - | PLAY_POSITION_SET_REQUEST |
+| 0x905 | 0C025C90 | 8 | s32 position. **Music**: absolute trackbar target 0..0x6400. **Video**: a signed step in seconds, relative to the current position (player.md 5.3): +1/-1 per send for short files, the resume time, or 0 / -1 during step-back | - | PLAY_POSITION_SET_REQUEST |
 | 0x906 | 0C025CB8 | 8 | u32 1 = position indications on, 0 = off (sent 0 before the GBA stops itself during music, 1 after) | - | PLAY_POSITION_IND_SET_REQUEST |
 | 0xB00 | 0C025D08 | 8 | u32 volume 0..56: user level (0..36, default 18) x 56 / 36; 0 = mute (pause, resume seek) | - | VOLUME_SET_REQUEST |
 | 0xD00 | 0C025D54 | 0x10 | u32 level, u32 0, u32 0. Level = setting (0..6) x 15 / 6 | - | AUDIO_3D_ENHANCEMENT_REQUEST |

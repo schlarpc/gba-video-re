@@ -16,7 +16,8 @@ Common dumps are 4 MiB, the 1 MiB image mirrored four times; the first 1 MiB mat
 **This lane is partial.** The GBA side is documented from the code of all three ROMs. The firmware
 images are extracted and characterised, but their codecs are not reimplemented, so there is no
 decoder, no manifests and no verification against the cartridge for this family yet. Everything
-here comes from static analysis: none of it has yet been checked by running the ROMs.
+here comes from static analysis of the code, checked by running all three ROMs in mGBA against an
+emulated cartridge built from [protocol.md](protocol.md) (below).
 
 ## Findings
 
@@ -53,6 +54,27 @@ here comes from static analysis: none of it has yet been checked by running the 
 | [nmp.md](nmp.md) | Nintendo MP3 Player: working notes, address by address |
 | [prior-art.md](prior-art.md) | shonumi's articles, documentation and GBE+, compared element by element |
 
+## Emulator check
+
+All three ROMs were run in a patched mGBA against an emulated cartridge built from
+[protocol.md](protocol.md): register behaviour in C inside the core, the firmware's behaviour
+modelled at a high level in Python, media decoded with ffmpeg from a host folder acting as the SD
+card. The emulator, its patch and the traces are local and not in this repository.
+
+- All three boot to their menus and play video (Play-Yan, Micro: ASF and MP4) and music. The
+  original's browse, seek, pause, frame step, step-back, brightness, volume, stop, resume, end of
+  file, Garage Games 1-5, sleep and wake, and the "no SD card" screen all work; so do the Micro's
+  key file and the MP3 Player's listing, ID3, seek and stop.
+- All six VC01 firmware images reach cartridge memory byte-exact, and the MP3 Player's DSP image
+  word-exact (91 sections, entry 0x42FC).
+- Every register access site and all 26 command lengths that were exercised match the documents.
+  Corrections from the traces, marked **[run]**: CTRL is read back by one pulse and bit 1 is a
+  read-restart strobe; the dummy FIFO read is 0x81 reads; video 0x905 is relative seconds; the
+  Garage Games send no video commands; an odd-length key file loses its last byte (Nintendo's own
+  sample is rejected for that reason); fast-forward and rewind lower the volume to 3/4.
+- Choices the GBA code does not fix, so the model made them: the 240x176 to 240x160 crop and scale,
+  the thumbnail scaling, frame timing at the source rate, brightness as a plain gain.
+
 ## Media
 
 Nintendo's own sample files are still on nintendo.co.jp/n08/playan/ and /n08/play_yan_micro/
@@ -64,12 +86,16 @@ V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/
 
 ## Open issues
 
-- Nothing has been run yet: an emulated cartridge in mGBA that boots the three ROMs, to check the
-  protocol documents against a running program, is in progress.
+- The emulated cartridge is high-level: it plays media with ffmpeg, not with the firmware, so it
+  checks the GBA side and the protocol, not the cartridge's output. Its thumbnails never match the
+  Garage Game hashes (about 2,300 crop, sampling and rounding variants tried), so the firmware's
+  thumbnail scaling is unknown. Not yet exercised: music-mode sleep, the Micro's auto-play
+  (0x4000/0x4001), the MP3 Player's background play and sleep, and the update path with a real
+  `.fup`.
 - The VC01 instruction set beyond the forms in [firmware.md](firmware.md) 3, and with it the
   codecs, the 240x176 to 240x160 fit, the brightness processing and the 8-bit audio conversion.
-- The update path after FIRMWARE_DOWNLOAD, the units of the video seek (0x905), how the cartridge
-  learns that a frame or audio block has been read, and the roles of CTRL bit 4 and the GO register
+- The update path after FIRMWARE_DOWNLOAD, how the cartridge paces frames and audio blocks that
+  the GBA never acknowledges, and the roles of CTRL bit 4 and the GO register
   ([player.md](player.md) 12).
 - Ground truth for decoded output needs either an emulator of the firmware or captures from real
   hardware.

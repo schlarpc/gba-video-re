@@ -99,7 +99,8 @@ ROM requires, not to criticise the emulation.
 | 13 names + hashes; `rotr(h + p, 31)` over 0x960 pixels; name must match, case-sensitive | [D] | Yes | Table at ROM 0x0C0F1EA8: {game index, name, hash} with a −1 terminator. Same 13 hashes. Hash = rotl 1 (= rotr 31) |
 | "Each Garage Game already exists in the ROM" | [D][A2] | Yes | Game index → descriptor table at 0x0C0F1F70 (14 entries; index 3 = CREDIT is the staff roll; index 13 is a stub no file reaches). Code at 0x0C0198F4-0x0C0217DF |
 | Thumbnail generated from the first frame | [D] | Not checkable | Cartridge side |
-| New | | | The video browser also plays a 60x40 live preview of the highlighted file through 0x700 with 60 x 40, using the same window blit as the games |
+| Garage Games run in the ASF's 60x40 thumbnail window | [D][A1] | **No** (games 1-5) | Run in an emulated cartridge, games 1-5 send only 0x2000 sound effects and no video commands **[run]** |
+| New | | | The video browser plays a 60x40 live preview of the highlighted file through 0x700 with 60 x 40, using the window blit path |
 
 ## Micro
 

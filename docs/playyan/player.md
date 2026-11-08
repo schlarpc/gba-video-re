@@ -7,7 +7,7 @@ deltas and section 11 covers the **Nintendo MP3 Player**. Register-level details
 response records and data layouts are in [protocol.md](protocol.md), and comparison with earlier
 work is in [prior-art.md](prior-art.md).
 
-Evidence tags as in protocol.md: **[code]** from the ROM code, **[inferred]** our reading of
+Evidence tags as in protocol.md: **[run]** seen in emulator traces of the real ROM, **[code]** from the ROM code, **[inferred]** our reading of
 intent, **[fw-names]** a label from the cartridge firmware's own message-name table, **[prior]**
 from shonumi or GBE+ only. Addresses are Play-Yan addresses (code runs at 0x0Cxxxxxx, the WS2
 mirror) unless noted.
@@ -235,8 +235,10 @@ The step is computed once per seek message:
 
 A new 0x905 is sent only after at least 4 frames **and** after a video record has arrived since
 the last seek (flag ctx+8 bit 4, set by the 0x80001000 callback). The message rate therefore
-follows the cartridge's frame rate. The units of the step are not proven on the GBA side. They
-are seconds if, as for resume (5.4), 0x905 takes seconds **[inferred]**.
+follows the cartridge's frame rate. **0x905 for video is a relative, signed number of seconds
+[run]**: with a cartridge model that seeks by that many seconds from the current position, the
+GBA's own clock and the resume values come out consistent (30 fast-forward steps of +1 move the
+clock 30 s; a stop at 34 s stores 29). The GBA code itself fixes only the sign and the size.
 
 ### 5.4 Resume ("the 6-second rule")
 
@@ -256,7 +258,8 @@ On the first stream record without audio, the player sends **0x905(resume second
 Ten such records later it restores the volume (0x0C021B8C). The resume value is an absolute time,
 and playback has just started from 0. So either 0x905 is absolute for video, or it is relative and
 the two cannot be told apart at this point. Together with 5.3 (small signed steps), a **relative,
-signed seconds** reading is the only one consistent with both uses **[inferred]**.
+signed seconds** reading is the only one consistent with both uses, and the emulator run agrees
+(5.3) **[run]**.
 
 ## 6. Audio
 
@@ -371,8 +374,10 @@ The highlighted entry also gets a **live preview**: **0x700(name, 60, 40)**, wit
 0x0C018BCC-0x0C018C3E]**. So the cartridge decodes at the size the GBA asks for in 0x700.
 Selecting a normal file starts the player scene with the argument index | duration << 8. Selecting a
 file whose hash matched starts Garage Game n from the table at 0x0C0F1F70. The game code is in the
-ROM, and the ASF file only unlocks it. That the games use the playing ASF in the 60x40 window comes
-from prior work [prior]. The GBA code agrees, since the window blit path exists only for this.
+ROM, and the ASF file only unlocks it. Prior work says the games play inside the ASF's 60x40 window
+[prior]. That is wrong for games 1-5, which run in an emulated cartridge: they send only 0x2000
+sound-effect commands and no video commands **[run]**. The window blit path is used by the browser's
+live preview; it could not be triggered in the emulator, so what else uses it is open.
 
 ## 10. Play-Yan Micro
 
@@ -399,6 +404,9 @@ All addresses in this section are Micro addresses. Full detail: [micro.md](micro
   - spaces, tabs and `=` are skipped;
   - a value is an optional `-` and 1-4 digits, and **must be followed by a space, tab, CR or LF**,
     so the last line needs a newline.
+  - The GBA copies the file in halfwords and takes half the byte count, so a file of odd length
+    loses its last byte. Nintendo's sample `play_yanmicro.ini` (175 bytes, LF endings) loses its
+    final newline this way and is rejected; one more newline makes it pass **[run]**.
 
   Any lexical error discards the whole file. A Design or StartMode outside 0..1, or an
   AudioPlayMode or VideoPlayMode outside 0..3, skips only that key. In both cases the "bad key
@@ -453,18 +461,19 @@ Protocol details are in protocol.md 11, and full notes with addresses in [nmp.md
 
 - What the two read windows (0xB000300 and 0xB000500) differ in, and why only frames and
   thumbnails use the second one, and only that one gets streaming mode.
-- CTRL bit 4 (pulsed once at boot), the GO register's exact role, and which VC word the IRQ
-  acknowledge clears.
+- CTRL bit 4 (pulsed once at boot) and the GO register's exact role. If GO latches the address,
+  the record-clear write lands on 0xFF000; the GBA side cannot tell.
 - The purpose of the dummy 256-byte FIFO read of VC 0x80000 and of the poll count written to
   VC 0xFF080 after every reset.
 - 0x400 AUDIO_MODE_SET(1, 0): sent on entering every audio scene, never confirmed. What do its
   two words select?
-- The units of the video 0x905 argument, and whether it is relative (5.3, 5.4). Also the meaning
-  of 0x905(0) followed by 0x905(-1) in step-back.
+- The meaning of 0x905(0) followed by 0x905(-1) in step-back (0x905 itself is settled, 5.3).
 - The update path after 0x8001 (3.1, [inferred]). This needs the loader's 0x800000 handler from
   the firmware side.
-- How the cartridge knows a frame or audio block has been consumed. The GBA code never signals
-  it, so the cartridge presumably double-buffers or paces by its own clock.
+- How the cartridge knows a frame or audio block has been consumed. The GBA never signals it; the
+  traces show no register access after a copy except CTRL bit 0 dropping **[run]**. So the cartridge
+  must buffer (4 frame and 32 audio buffers were always enough in the model) or pace by its own
+  clock.
 - Whether anything shows the error-log FIFO, for example a debug build.
 - NMP: which byte the DSP really sends first for audio samples. The GBA treats the odd-address
   byte as first, which is proven for file data only.
