@@ -75,9 +75,12 @@ to a patched mGBA running the real GBA ROM. Neither side is simulated at a high 
   bit-exact against fixed-point references, and their output is within 1 LSB of ffmpeg.
 - Video: the firmware decodes the ASF files itself. **Its thumbnails of the Garage Game files
   match the hashes in the GBA ROM's table**, an end-to-end check of the MPEG-4 decoder, the colour
-  conversion and the 240x176 to 60x40 crop and scale (centred 240x160, then a 4:1 box filter). Full
-  videos play with recognisable pictures, but with colour errors at edges that are not yet
-  explained.
+  conversion and the 240x176 to 60x40 crop and scale (centred 240x160, then a 4:1 box filter), and
+  the GBA ROM itself recognises them and starts the games. Full videos play correctly: over 274
+  frames of Nintendo's sample, the frames the GBA shows are within one 5-bit step of an ffmpeg decode
+  put through the firmware's colour maths (49.8 dB, 96.7 % of pixels identical; intra frames
+  bit-exact against the firmware's own IDCT, the rest IDCT drift). This needed one cartridge fact:
+  the pixel window converts the firmware's RGB565 to BGR555 ([protocol.md](protocol.md) 8.2).
 - The Micro boots and reads its key file through the firmware.
 - **Nintendo MP3 Player:** the real DSP firmware runs on an emulated TMS320VC5416 under the real
   GBA ROM through upload, boot, mount, menu, ID3, playback, seek and the `meteor.fup` update. **Its
@@ -120,9 +123,8 @@ V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/
 
 ## Open issues
 
-- The colour errors in full-screen video playback on the real firmware (thumbnails are exact). Not yet exercised: music-mode sleep, the Micro's auto-play
-  (0x4000/0x4001), the MP3 Player's background play and sleep, and the update path with a real
-  `.fup`.
+- Not yet exercised in any model: music-mode sleep, the Micro's auto-play (0x4000/0x4001), and the
+  MP3 Player's background play and sleep.
 - Standalone bit-exact decoders (C and Rust) for this family, from the firmware's kernels; AAC on a
   real bitstream (its scalar front end is not modelled yet).
 - How the cartridge paces frames and audio blocks that
