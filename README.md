@@ -21,6 +21,7 @@ player build, streams, measurements and verification status.
 | [**Hydrogen**](docs/hydrogen/README.md) | Majesco (the "Hydrogen" library) | 13 retail carts (Nickelodeon, Cartoon Network, Sonic X, Yu-Gi-Oh!, ...) and the *Sonic X Vol 2* prototype | vector quantisation (1 byte per 4x4/4x3/3x3/4x2 block, 256-entry YCbCr codebook per segment) under a DEFLATE variant; Majesco ADPCM audio |
 | [**ADS**](docs/ads/README.md) | Majesco (the "ADS" engine) | 19 carts (Cartoon Network, Disney, Nicktoons, Dragon Ball GT, ...) plus 2 Hydrogen-engine carts that use the ADS codec | the same VQ layer under LZMA; Majesco ADPCM audio |
 | [**AM3**](docs/am3/README.md) (partial) | Actimagine | the Japanese Advance Movie Adapter with SmartMedia movie cards; not a cartridge, not in the DAT | only the adapter's firmware loader is documented; the player and codec are on the cards, and no card has been dumped |
+| [**Play-Yan**](docs/playyan/README.md) (partial) | Nintendo; Alphamosaic VC01 and TI C54x chips | *Play-Yan*, *Play-Yan Micro*, *Nintendo MP3 Player*: SD card media players, not GBA Video carts (main GBA DAT) | the cartridge's own chip decodes MPEG-4/G.726/AAC/MP3 from firmware the GBA uploads; the GBA program, the protocol and the firmware images are documented, the codecs are not yet |
 
 The Hydrogen and ADS families share the VQ frame format and the ADPCM audio decoder; they differ
 in the container and the compression layer ([docs/majesco](docs/majesco/README.md)). The VX and
@@ -39,6 +40,7 @@ FVMV players share Actimagine's GBA audio output stage (4x interpolation and noi
 | [ADS](docs/ads/README.md) | 21 of 22 | 96 | 14.5 | 621,421 / 621,462 | 51,791 / 51,793 | [ads](docs/ads/README.md) |
 | **all** | 46 of 47 | 179 | 39.2 | 1,432,352 / 1,432,393 | 6,328,659 / 6,742,179 | [carts.md](docs/carts.md) |
 | [AM3](docs/am3/README.md) (adapter + SmartMedia cards) | not in the DAT | - | - | firmware loader only | - | [am3](docs/am3/README.md) |
+| [Play-Yan](docs/playyan/README.md) (SD card media players) | 3 in the main GBA DAT | - | - | GBA side and protocol documented; codecs in cartridge firmware, not yet decoded | - | [playyan](docs/playyan/README.md) |
 <!-- END gen_tables:summary -->
 
 For every stream, the ground truth is a whole-stream capture of the cartridge in a headless
@@ -66,7 +68,7 @@ with `GBAV_CDIFF=1` differential fuzzing against the C reference decoders in `re
 
 | path | contents |
 |---|---|
-| [docs/](docs/) | Per family (`vx`, `fvmv`, `hydrogen`, `sonicx2-proto`, `ads`, `majesco`, `am3`): `README.md` (overview, results, open issues), `player.md`, `format.md` (reimplementation grade), `perf.md`, `prior-art.md`, `features.md`, `stats.json`. [docs/carts.md](docs/carts.md) is the generated cart table |
+| [docs/](docs/) | Per family (`vx`, `fvmv`, `hydrogen`, `sonicx2-proto`, `ads`, `majesco`, `am3`, `playyan`): `README.md` (overview, results, open issues), `player.md`, `format.md` (reimplementation grade), `perf.md`, `prior-art.md`, `features.md`, `stats.json`. [docs/carts.md](docs/carts.md) is the generated cart table |
 | `reference/<family>/` | The C99 reference decoders: `vx/decoder` (vxdec), `fvmv` (fvmvdec), `hydrogen` (hydec, hystat), `sonicx2-proto` (sx2dec), `ads` (adsdec), and `majesco` (VQ + ADPCM shared by Hydrogen and ADS). Tables that are not standard are generated from your ROM at build time |
 | `crates/` | The Rust workspace: `gbav-common` (decoder traits, md5, shared output stages), `gbav-rom` (cart identification, family classifier, player build id, embedded No-Intro table), one crate per codec (`gbav-vx`, `gbav-fvmv`, `gbav-majesco`, `gbav-hydrogen`, `gbav-ads`) the `gbav` command line (`gbav-cli`), and `gbav-testkit` (test support: ROM lookup, env gates, the C reference decoders loaded for differential tests) |
 | `tools/<family>/` | Python and emulator tooling: mGBA capture harnesses, unicorn oracles, fuzzers, profilers, verify and stats scripts. `tools/common/roms.py` finds your ROMs; `tools/gen_tables.py` regenerates the tables; `tools/mgba/` and the family `patch` files are mGBA patches |
@@ -152,6 +154,9 @@ Other prior art:
   DS codec, and Kostya Shishkov's
   [2025 note](https://codecs.multimedia.cx/2025/08/a-quick-glance-at-another-bunch-of-codecs/)
   on the `VXGB` magic.
+- Play-Yan: shonumi's ["Edge of Emulation: Nintendo Play-Yan"](https://shonumi.github.io/articles/art32.html)
+  parts 1 and [2](https://shonumi.github.io/articles/art35.html), his Play-Yan and Nintendo MP3 Player
+  technical documentation (Dan Docs), and the Play-Yan and NMP support in GBE+.
 - AM3: shonumi's ["Edge of Emulation: Advance Movie Adapter"](https://shonumi.github.io/articles/art28.html),
   his Advance Movie Adapter technical documentation and card dumping guide, and the AM3 support
   in GBE+.

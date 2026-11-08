@@ -229,6 +229,7 @@ def summary(entries, recs):
                f"{sum(r['duration_s'] for r in recs) / 3600:.1f} | {fmt_int(sum(x for x, _ in allv))} / {fmt_int(sum(y for _, y in allv))} | "
                f"{fmt_int(sum(x for x, _ in alla))} / {fmt_int(sum(y for _, y in alla))} | [carts.md](docs/carts.md) |")
     out.append("| [AM3](docs/am3/README.md) (adapter + SmartMedia cards) | not in the DAT | - | - | firmware loader only | - | [am3](docs/am3/README.md) |")
+    out.append("| [Play-Yan](docs/playyan/README.md) (SD card media players) | 3 in the main GBA DAT | - | - | GBA side and protocol documented; codecs in cartridge firmware, not yet decoded | - | [playyan](docs/playyan/README.md) |")
     return out
 
 
