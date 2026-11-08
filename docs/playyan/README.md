@@ -55,11 +55,32 @@ emulated cartridge built from [protocol.md](protocol.md) (below).
 | [player.md](player.md) | The GBA program: boot, memory map, interrupts, scenes, firmware loading, video and audio pacing, controls, resume, sleep, Garage Games, Micro key file, MP3 Player structure |
 | [firmware.md](firmware.md) | The firmware images and `playan.fup`, their contents, the loader's update path, the MP3 Player's C54x image |
 | [vc01-isa.md](vc01-isa.md) | The VC01 instruction set: scalar encodings with evidence, coverage, the vector subset decoded so far |
+| [vc01-hardware.md](vc01-hardware.md) | The VC01's peripherals as the firmware uses them: interrupts, timer, GPIO, SD card over SPI, AC'97 audio, DMA, the clock |
 | [micro.md](micro.md) | Play-Yan Micro: differences from the original, address by address |
 | [nmp.md](nmp.md) | Nintendo MP3 Player: working notes, address by address |
 | [prior-art.md](prior-art.md) | shonumi's articles, documentation and GBE+, compared element by element |
 
-## Emulator check
+## Real firmware
+
+The real VC01 firmware runs in an emulator: a decoded instruction set ([vc01-isa.md](vc01-isa.md))
+in a C core, and a model of the chip's peripherals ([vc01-hardware.md](vc01-hardware.md)), coupled
+to a patched mGBA running the real GBA ROM. Neither side is simulated at a high level.
+
+- The original Play-Yan boots to its menu on its own firmware: loader, RAM test, FIRMWARE_LIST,
+  RESET_STANDBY, music image, folder walk. With `playan.fup` on the SD card, the loader reads and
+  checks every block and starts the v1.11 image, and the GBA carries on with it.
+- Music: browse, ID3 tags parsed by the firmware, play, fast-forward, rewind, pause, end of song
+  and the move to the next song, all driven by the firmware's own records. The audio content is
+  not yet right, because the MP3 synthesis is vector code the emulator cannot run yet.
+- Video: the video image loads and lists files, but the thumbnail request is never answered: the
+  MPEG-4 bitstream unpacker is vector code. Once it runs, the 13 Garage Game thumbnail hashes are a
+  ready-made end-to-end check.
+- The Micro boots and reads its key file through the firmware.
+
+Claims tagged **[lle]** in the other documents come from these runs. The emulator,
+its mGBA patch and the traces are local and not in this repository.
+
+## Emulator check (high-level cartridge model)
 
 All three ROMs were run in a patched mGBA against an emulated cartridge built from
 [protocol.md](protocol.md): register behaviour in C inside the core, the firmware's behaviour
@@ -91,10 +112,9 @@ V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/
 
 ## Open issues
 
-- The emulated cartridge is high-level: it plays media with ffmpeg, not with the firmware, so it
-  checks the GBA side and the protocol, not the cartridge's output. Its thumbnails never match the
-  Garage Game hashes (about 2,300 crop, sampling and rounding variants tried), so the firmware's
-  thumbnail scaling is unknown. Not yet exercised: music-mode sleep, the Micro's auto-play
+- The high-level cartridge model's ffmpeg thumbnails never match the Garage Game hashes (about
+  2,300 crop, sampling and rounding variants tried); the real firmware's thumbnail path is blocked
+  on the vector unit. Not yet exercised: music-mode sleep, the Micro's auto-play
   (0x4000/0x4001), the MP3 Player's background play and sleep, and the update path with a real
   `.fup`.
 - The VC01 vector instructions beyond the G.726 subset, and with them the MPEG-4, MP3 and AAC
@@ -103,5 +123,5 @@ V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/
 - How the cartridge paces frames and audio blocks that
   the GBA never acknowledges, and the roles of CTRL bit 4 and the GO register
   ([player.md](player.md) 12).
-- Ground truth for decoded output needs either an emulator of the firmware or captures from real
-  hardware.
+- The VC01's real clock rate is unknown (the firmware's own PLL formula gives 8-16 MHz, which looks
+  too slow), so the emulator's instruction rate is a free choice.

@@ -40,7 +40,12 @@ Flipping a decoded operation to a plausible alternative (signed vs unsigned half
 min, the scaled add, abs) makes the relevant tests fail, so those operations are pinned down
 individually. The loader, the video image and the music image also boot from reset in the emulator,
 start the Nucleus scheduler and post their startup record, running 6-8 million instructions without a
-decode fault (they report status 1, as no SD card or audio codec is modelled).
+decode fault. With the peripherals of [vc01-hardware.md](vc01-hardware.md) modelled, all five
+images (loader, video, music and both `playan.fup` images) boot to status 0, and the real firmware
+serves the real GBA ROM (README, "Real firmware"). A C port of the emulator runs at 120-160 million
+instructions per second and matches the Python model instruction by instruction on all the tests
+above. The four behaviours marked "real firmware" below were found that way: the routines in the
+table do not exercise them.
 
 ## Coverage
 
@@ -67,6 +72,11 @@ The music images are about 44 % vector code (MP3 synthesis and IMDCT), the video
   r26 = lr (bl writes it, rts reads it), r31 = pc.  Same roles as VideoCore IV.  [C]
 * ABI: args r0-r5 (more args / va_list on the stack directly above them), result r0 (r1:r0 for
   64-bit, low word in r0), r6-r23 callee-saved (push/pop of r6-rN), r0-r5 caller-saved.  [C]
+* Writes to pc (r31) as a destination of mov/add/ld are jumps; the GBA's record at VC 0x200 is
+  `mov pc, #0xC0200`.  [C, real firmware]
+* Word and halfword accesses ignore the low address bits (the bus aligns them).  [C, real firmware]
+* Interrupt entry: sp -= 8, [sp] = sr, [sp+4] = pc, interrupts off, pc = [4*vector]; rti undoes
+  it.  sr bit 30 = interrupt enable.  [C, real firmware]
 * Flags N Z C V, set ONLY by cmp / cmn / tst / btst(Z).  C after cmp = borrow (a <u b), i.e.
   'cs' = unsigned lower (VC4 convention, inverted vs ARM).  addcmpb does not change flags.  [C]
 * Instruction stream = little-endian 16-bit words; the first word gives the length:
@@ -111,7 +121,7 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
                                                          [C] loader 0xc6d10 'playan.fup', 0xc6d46 header
 010o oooo 0011 dddd   misc, selected by o:                                      (rd field = d)
     o=2  4230   nop (padding after functions)                                 [P]
-    o=3  4330   ? (between ei and di in a Nucleus spin loop; nop/yield?)       [G]
+    o=3  4330   wait for interrupt (idle loop ei; 4330; di)                    [C, real firmware]
     o=4  4430   rts  (pc = lr)                                                 [C]
     o=6  46 3d  b rd                                                           [C] (executed)
     o=7  47 3d  bl rd   (call through function pointer)                        [C]
@@ -119,7 +129,7 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
     o=12 4c3d   switch.b rd: pc = next + 2*sx8(byte table[next + rd])           [C] sprintf
     o=13 4d3d   switch.h rd: pc = next + 2*sx16(half table[next + 2*rd])         [C]
     o=16 50 3d  tst rd  (flags of rd - 0)                                       [C]
-    o=18 5230   sleep/halt? (idle loop at entry, after fatal errors)            [G]
+    o=18 5230   breakpoint; a no-op without a debugger (exception stubs, fatal paths) [C, real firmware]
     o=19 53 3d  rdcfg? rd: reads a status/version word (loader tests bit 25)   [G]
     o=20 5430: unknown (rare; vector code)
     o=24 5830   rti  sr=*sp++, pc=*sp++ (IRQ exit; Nucleus context restore)       [P] boot emulation
@@ -133,6 +143,8 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
 1110 0000 Lbbm mmmm   pop rb..r(b+m) [,pc]    bb: 0 r0, 1 r6, 2 r16, 3 r24; L = also pc;
 1111 0000 Lbbm mmmm   push rb..r(b+m) [,lr]   f0ef/e0ef = lr/pc only.  Low byte identical to VC4
                                               stm/ldm (0x03ef = "push lr").             [C]
+                      Memory order as VC4: the highest register at the lowest address, lr/pc
+                      above them (the Nucleus interrupt frame restores only this way). [C, real firmware]
 1110 uuuu ssss dddd   ld rd, (rs + 4u)   u = 1..15                              [C] Nucleus list
 1111 uuuu ssss dddd   st rd, (rs + 4u)   u = 1..15                              [C]
 (0x80-0xbf, 0xe0/0xf0 and 0x78-0x7f together make up all 16-bit loads/stores; there is no

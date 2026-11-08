@@ -19,6 +19,8 @@ tags:
   separate firmware analysis ([firmware.md](firmware.md)). It is used only to
   label IDs whose behaviour the GBA code already shows.
 - **[prior]**: from shonumi's documentation or GBE+, and not observable in the GBA code.
+- **[lle]**: observed with the real cartridge firmware running on the emulated VC01
+  ([vc01-hardware.md](vc01-hardware.md)) under the real GBA ROM.
 - **[run]**: observed in bus traces of the real ROM running in mGBA against an emulated cartridge
   (README, "Emulator check"). This shows what the GBA does; the cartridge side of such a run is
   our model, not the hardware.
@@ -284,6 +286,12 @@ Every Game Pak interrupt delivers one 32-byte record, `rec[0..7]`, eight little-
 read from VC 0xFF000 (3.6). rec[0] is the ID. The ID is the command ID OR 0x40000000 for a
 confirm, and has bit 31 set for an unsolicited indication.
 
+The firmware writes only the words a record uses; the others keep the previous record's values
+**[lle]**. RESET_STANDBY_CONFIRM, for example, arrives as `40800000 00000005`, the 5 left over from
+FIRMWARE_LIST_CONFIRM(5). The GBA ignores those words. No sender reads VC 0xFF000 before writing,
+so the GBA's zero write after each record (3.6) is not a handshake the firmware waits for
+**[lle]**.
+
 ### 7.2 Dispatcher (0x0C025454)
 
 Called from scene code, not from the interrupt. It pops records from the ring (0x0C024B68, with IE
@@ -334,7 +342,7 @@ is diagnostic only.
 
 | ID | firmware name [fw-names] | record fields and GBA action **[code]** |
 |---|---|---|
-| 0x80000100 | VC_STARTUP_INDICATION | rec[1] = status. 0 = running. 1-4 and other values select the boot error screens (player.md 4.2). From the menu, non-zero shows "AC97 ERROR!" (0x0C01134C) |
+| 0x80000100 | VC_STARTUP_INDICATION | rec[1] = status. 0 = running, 1 = AC'97 codec init failed, 3 = SD card mount failed **[lle]**. 1-4 and other values select the boot error screens (player.md 4.2). From the menu, non-zero shows "AC97 ERROR!" (0x0C01134C) |
 | 0x40000200 | FILE_LIST_CONFIRM | rec[1] = VC address of the list. The GBA always copies **0x67AC bytes** (8 + 99 x 268) through WIN_R0 to *0x03002D98 |
 | 0x40000201 | FILE_SELECT_CONFIRM | no data. The callback's user word tracks the folder depth (+1, -1, 0) |
 | 0x40000500 | VIDEO_INFO_CONFIRM | rec[2] = VC address of the thumbnail, copied through **WIN_R1** to the buffer set by 0x0C025310(buf, w, h) (w x h x 2 bytes; 60 x 40 -> 0x12C0). rec[3] = duration in ms (callback value; 0x0C018D28 stores rec[3] / 1000). rec[1] is not used |
@@ -349,7 +357,9 @@ is diagnostic only.
 | 0x80010001 | WAKEUP_INDICATION | reply to the wake kick after 0x10000 sleep |
 | 0x40800000 | RESET_STANDBY_CONFIRM | the GBA then reloads fw0 or fw1 |
 
-IDs in the firmware's name table that the GBA does **not** handle, so they would log error 1:
+IDs in the firmware's name table that the GBA does **not** handle, so they log error 1. ALERT is
+really sent: by the Micro's loader right after VC_STARTUP_INDICATION, and by the `playan.fup` music
+image when a folder is entered **[lle]**. The list:
 0x80100000 ALERT_INDICATION, 0xC0000000 HP_JACK_STATUS_CHANGE, 0xC0000001 AC_ALERT
 [fw-names]. The original GBA code has no headphone-state input. The GBA never learns whether
 headphones are plugged in; the cartridge decides whether to send audio data [inferred].
@@ -361,7 +371,7 @@ headphones are plugged in; the cartridge decides whether to send audio data [inf
 | rec[1] | VC address of a video frame, or 0 for none |
 | rec[2] | not read by the GBA |
 | rec[3] | VC address of an audio block, or 0 for none |
-| rec[4] | audio block size in bytes, total for both channels, at most 0x480 (larger values are clamped and log error 3; 0 logs error 3 and is skipped) |
+| rec[4] | audio block size in bytes, total for both channels, at most 0x480. Music sends 0x480-byte blocks from two alternating buffers; sound effects 0x2BA-byte blocks **[lle]**. The stream is paced by the cartridge's own audio DMA to its headphone codec **[lle]** (larger values are clamped and log error 3; 0 logs error 3 and is skipped) |
 | rec[5] | music: trackbar position 0..0x6400. Stored at 0x03001680 |
 | rec[6] | music: elapsed seconds; video: elapsed **milliseconds**. Stored at 0x03001684 |
 | rec[7] | not read |

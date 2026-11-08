@@ -7,7 +7,7 @@ deltas and section 11 covers the **Nintendo MP3 Player**. Register-level details
 response records and data layouts are in [protocol.md](protocol.md), and comparison with earlier
 work is in [prior-art.md](prior-art.md).
 
-Evidence tags as in protocol.md: **[run]** seen in emulator traces of the real ROM, **[code]** from the ROM code, **[inferred]** our reading of
+Evidence tags as in protocol.md: **[lle]** seen with the real cartridge firmware, **[run]** seen in emulator traces of the real ROM, **[code]** from the ROM code, **[inferred]** our reading of
 intent, **[fw-names]** a label from the cartridge firmware's own message-name table, **[prior]**
 from shonumi or GBE+ only. Addresses are Play-Yan addresses (code runs at 0x0Cxxxxxx, the WS2
 mirror) unless noted.
