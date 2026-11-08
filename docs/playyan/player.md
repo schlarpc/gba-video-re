@@ -133,8 +133,9 @@ state machine in the low byte of ctx+4 (bits 1-4) **[code: switch at 0x0C0108C8,
 2. 0x80000100 VC_STARTUP_INDICATION from the loader: rec[1] != 0 shows an error screen (4.2).
    Otherwise register 0x40008000 and send **0x8000** FIRMWARE_LIST.
 3. 0x40008000: keep rec[2] as the update-parts byte (bit 0 video, bit 1 music). Register
-   0x80000100 and 0x40800000. If bit 1 (music) is set, send **0x8001(2)**; its confirm
-   0x40008001 then sends 0x800000. Otherwise send **0x800000** RESET_STANDBY directly.
+   0x80000100 and 0x40800000. If bit 1 (music) is set, send **0x8001(2)**: on success the
+   downloaded music image starts and its 0x80000100 continues at step 6; on failure 0x40008001
+   leads to 0x800000. Otherwise send **0x800000** RESET_STANDBY directly.
 4. 0x40800000: start the incremental upload of **fw1** (music) with 0x0C024F8C(1), state 3.
 5. **State 3**: 0x0C025040 copies 16 KiB per frame. When it is done it writes the kick and
    installs the handler, state 0.
@@ -161,8 +162,8 @@ The main menu tracks the loaded media type (0x030012B5) **[code: 0x0C0118E0-0x0C
   0x40800000, upload fw0 (video) or fw1 (music) incrementally. The callback's user word is 0 for
   video and 1 for music.
 - Different type, with an update part for it: re-upload **fw2** (0x0C0251C4). On its
-  0x80000100, send **0x8001(1)** for video or **0x8001(2)** for music. Then 0x40008001 leads to
-  0x800000, as in 3.1.
+  0x80000100, send **0x8001(1)** for video or **0x8001(2)** for music. The downloaded image then
+  starts by itself; only a failed download (0x40008001) leads to 0x800000, as in 3.1.
 
 A non-zero 0x80000100 status here shows "AC97 ERROR!" (0x0C01134C).
 
