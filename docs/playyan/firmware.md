@@ -3,8 +3,7 @@
 The GBA program uploads the media chip's firmware from its own ROM at every boot
 ([protocol.md](protocol.md) 5). This document covers those images as the chip receives them, the
 update file `playan.fup`, what the images contain, how far the VC01 instruction set is decoded, and
-the Nintendo MP3 Player's DSP image. It is a first pass. Decoding the VC01 instruction set and
-emulating the firmware are in progress and are not part of this document yet.
+the Nintendo MP3 Player's DSP image. The instruction set itself is in [vc01-isa.md](vc01-isa.md).
 
 Tags: **[fw]** read from the firmware images; **[code]** from the GBA code; **[inferred]** our
 reading. Firmware addresses are addresses in the chip's own memory ("VC addresses").
@@ -51,9 +50,9 @@ stereo sound for video, to the original Play-Yan. The loader reads it from the S
 GBA never touches the file.
 
 - A 0x40-byte header: the text `Nintendo Playan firmware update program\r\n2005/07/13` and 0x1A,
-  then a directory entry count at +0x3E (2).
-- 16-byte directory entries: data offset (+0), length (+4), and type bytes. Entry 0 is the video
-  image, entry 1 the music image.
+  the entry count at +0x3E (2) and a check byte at +0x3F.
+- 16-byte entries (layout in section 4). Entry 0 is the video image (kind 1), entry 1 the music
+  image (kind 2).
 - The data is in 0x200-byte blocks, each followed by a check byte that makes the block's byte sum
   1 mod 256. All 1,106 blocks pass.
 
@@ -88,35 +87,45 @@ the check-byte rule are the same as those the Nintendo MP3 Player's GBA loader c
   around VC 0xD4C4 and 0xD6A4. The command dispatchers are at about VC 0xC82F8 (loader), 0x127EC
   (fw0), 0x208EA (fw1) and 0x1F3FC (Micro A).
 
-## 3. The VC01 instruction set (partly decoded)
+## 3. The VC01 instruction set
 
-No VC01 instruction-set documentation is public. The VideoCore IV encoding, which has been reverse
-engineered, does **not** fit: decoded with its length rules from about 250-470 known function starts
-per image, it lands on independently confirmed instruction starts only 49.6-52.4 % of the time,
-which is chance. The VC4 return opcode 0x005A occurs only 14-28 times per image.
+Decoded in [vc01-isa.md](vc01-isa.md). In short: a relative of VideoCore IV with the same register
+roles (r24 gp, r25 sp, r26 lr, r31 pc), condition codes and several 32-bit layouts, but its own ALU
+numbering and load/store forms, so VideoCore IV tools do not decode it. 99.99 % of the reachable
+code in every image decodes to a known scalar instruction or a vector instruction of known length.
+An emulator built from the decoding runs real firmware routines bit-exact against independent
+references: 64-bit and soft-float arithmetic, sprintf, FAT and Nucleus code, the `.fup` block check,
+the whole firmware download, and the G.726 codec (6,000 cases against Sun's reference code). The
+vector unit, which carries 8 % of the video code and 44 % of the music code, is only partly decoded.
 
-A length rule derived from the images themselves lands on 100 % of 1,300-3,000 such anchors per
-image. Instructions are sequences of little-endian 16-bit words, 16, 32 or 48 bits long.
+## 4. The update path (loader)
 
-| encoding | instruction | status |
-|---|---|---|
-| `2f6d` + 32 bits | `mov rd, #imm32` (48-bit) | confirmed |
-| `2f2d` + 32 bits | gp- or pc-relative address load (48-bit) | confirmed |
-| 0x1F80-0x1FFF + 16 bits | `bl`, 23-bit offset | confirmed |
-| 0x1080-0x10FF + 16 bits | `bl`, short | confirmed |
-| 0x1E00-0x1E7F, `3eXX` | `b` | confirmed |
-| 0x1000-0x107F + 16 bits | conditional branch (condition field not yet located) | confirmed |
-| `2e00` + 16 bits | `cmp r0, #imm16` | confirmed |
-| `4430` | `rts` | confirmed |
-| `f0xx` / `e0xx` | push / pop | probable |
+Traced in the loader and checked by running its FIRMWARE_LIST and FIRMWARE_DOWNLOAD code in the
+emulator on the real `playan.fup` **[fw]**:
 
-What carries over from VideoCore IV is the register roles (r24 gp, r25 sp, r31 pc), the
-16/32/48-bit instruction lengths and pc-relative address loads; the bit layouts differ. A 2003 ARC
-brochure on Alphamosaic's use of the MetaWare toolchain shows VC01-era disassembly with VideoCore
-IV-style mnemonics (`addcmpbge`, `ld %r1,(sp+180)`, `bl vclib_memcpy`), which fits this picture.
-Arithmetic, logic, load/store and condition encodings, and any vector instructions, are still open.
+- Commands arrive in a host-interface interrupt that copies the request from VC 0xFF020 and
+  queues it (16 entries); the loader's main task handles FIRMWARE_LIST, FIRMWARE_DOWNLOAD,
+  RESET_STANDBY, SLEEP, OPERATION_SOUND and the two alerts, and ignores everything else.
+- **FIRMWARE_LIST (0x8000)** opens `playan.fup` (the Micro's loader opens `play_yanmicro.fup`),
+  checks the header text (41 bytes), the header check byte and each entry's check byte, and replies
+  with status 0 and the OR of the kind bytes of all valid entries whose platform byte is 1 (the
+  Micro's loader requires 2). Status 5 = file not found, 4 = bad header or table.
+- **FIRMWARE_DOWNLOAD (0x8001)**: the parameter's low byte is a **kind mask** (1 video, 2 music),
+  not an index. The loader takes the first valid entry whose kind matches, reads blocks 1 onward to
+  VC 0x200 upward, checking every block, then reads block 0, disables interrupts, copies it to VC 0
+  and jumps to 0x200. Writing the vectors last means a failed download leaves the loader running.
+  **FIRMWARE_DOWNLOAD_CONFIRM is sent only on failure** (status 4 or 5). On success the new image
+  sends its own VC_STARTUP_INDICATION.
+- **RESET_STANDBY (0x800000)** only switches a power control off and confirms (0x40800000). It
+  does not reset or reload anything. The downloaded images handle it the same way, and answer
+  FIRMWARE_LIST with "not found" and FIRMWARE_DOWNLOAD with an error, so once an update image runs,
+  only a reset and a new loader upload by the GBA can change images.
 
-## 4. Nintendo MP3 Player: a TI TMS320C54x DSP
+Entry layout, as the loader reads it: offset (+0), payload size without check bytes (+4), platform
+(+8, 1 = Play-Yan, 2 = Micro), kind mask (+9), unused (+10-14), check byte (+15). The header's check
+byte is at +0x3F.
+
+## 5. Nintendo MP3 Player: a TI TMS320C54x DSP
 
 The GBA loader (0x08063D30 in the boot program) uploads a standard **C54x boot table** from ROM
 0x0A8F34 **[code]**: keyword 0x08AA, wait-state settings 0x7FFF and 0xF800 (SWWSR, BSCR), entry
@@ -126,12 +135,11 @@ the most common word, and 0xF4E4 (far return) is common. Some sections load into
 pages, so it is a C54x with extended program memory, of the VC5409/VC5416 class **[inferred]**.
 The image's codec has not been examined.
 
-## 5. Open questions
+## 6. Open questions
 
-- How the loader selects and checks a `.fup` section, what an AES-like GF(2^8) table in the loader
-  is for, and what the loader does with RESET_STANDBY after a FIRMWARE_DOWNLOAD
-  ([player.md](player.md) 3.1).
+- What an AES-like GF(2^8) table in the loader is for.
 - The mode-0x28 read of VC 0x80000 before every upload, and the host-interface registers at
   VC 0x10000000.
-- The rest of the VC01 instruction set (section 3).
+- The vector instructions beyond the G.726 subset, and with them the MP3 and MPEG-4 hot loops
+  ([vc01-isa.md](vc01-isa.md)).
 - How the firmware fits 240x176 video into the 240x160 frames it returns.

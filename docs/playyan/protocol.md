@@ -269,7 +269,7 @@ the GBA waits for, or "-" if it waits for nothing.
 | 0xD01 | 0C025D7C | 8 | u32 (b << 8) \| 0x800F, b from the 2-byte table at 0x0C0F2518 = {15, 0}: setting 0 sends 0x8F0F, setting 1 sends 0x800F | - | TONE_CONTROL_REQUEST |
 | 0x2000 | 0C025D2C | 0xC | u32 sound ID, u32 volume = clamp(level x 63 / 36, 16, 63), with level = user volume x 3 / 4 (0x0C0240A4, 0x0C024080) | records 0x80001000 with audio | OPERATION_SOUND_REQUEST |
 | 0x8000 | 0C025DA8 | 4 | - (list the update file's parts) | 0x40008000 | FIRMWARE_LIST_REQUEST |
-| 0x8001 | 0C025DCC | 8 | u8 part: 1 = video, 2 = music (other bytes uninitialised) | 0x40008001 | FIRMWARE_DOWNLOAD_REQUEST |
+| 0x8001 | 0C025DCC | 8 | u8 kind mask: 1 = video, 2 = music (other bytes uninitialised) | 0x80000100 from the new image on success; 0x40008001 only on failure ([firmware.md](firmware.md) 4) | FIRMWARE_DOWNLOAD_REQUEST |
 | 0x10000 | 0C025E04 | 4 | - ; the GBA enters BIOS Stop right after (player.md 8) | none; 0x80010001 after the wake kick | SLEEP_REQUEST |
 | 0x800000 | 0C025E28 | 4 | - ; sent before every reload of fw0 or fw1 | 0x40800000 | RESET_STANDBY_REQUEST |
 
@@ -345,7 +345,7 @@ is diagnostic only.
 | 0x40000801 | AUDIO_DECODE_STOP_CONFIRM | as 0x701. Audio timer back to **8192 Hz**, both audio rings cleared (0x0C025F88), play state = 0. Also the end-of-song event |
 | 0x80001000 | DECODE_DATA_INDICATION | the stream record (7.4) |
 | 0x40008000 | FIRMWARE_LIST_CONFIRM | rec[1] = status. If rec[1] == 0, the byte 0x03001690 = (u8)rec[2] = update parts present: bit 0 = video, bit 1 = music. The two bits are tested separately |
-| 0x40008001 | FIRMWARE_DOWNLOAD_CONFIRM | rec[1] = status (callback value). The GBA then sends 0x800000 |
+| 0x40008001 | FIRMWARE_DOWNLOAD_CONFIRM | rec[1] = status (callback value). Sent by the loader only when the download failed (4 bad file, 5 not found) [fw]. The GBA then sends 0x800000 and reloads its ROM image |
 | 0x80010001 | WAKEUP_INDICATION | reply to the wake kick after 0x10000 sleep |
 | 0x40800000 | RESET_STANDBY_CONFIRM | the GBA then reloads fw0 or fw1 |
 

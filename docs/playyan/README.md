@@ -14,8 +14,9 @@ and copies finished frames and audio blocks out of it.
 Common dumps are 4 MiB, the 1 MiB image mirrored four times; the first 1 MiB matches No-Intro.
 
 **This lane is partial.** The GBA side is documented from the code of all three ROMs. The firmware
-images are extracted and characterised, but their codecs are not reimplemented, so there is no
-decoder, no manifests and no verification against the cartridge for this family yet. Everything
+images are extracted and their instruction set decoded, but their codecs are not reimplemented
+(except G.726, checked against Sun's reference code), so there is no decoder, no manifests and no
+verification of decoded output for this family yet. Everything
 here comes from static analysis of the code, checked by running all three ROMs in mGBA against an
 emulated cartridge built from [protocol.md](protocol.md) (below).
 
@@ -36,7 +37,10 @@ emulated cartridge built from [protocol.md](protocol.md) (below).
   averaged ring fill. The first half of each audio block plays on the right speaker
   ([player.md](player.md) 6).
 - **The chips.** The firmware names itself `vc01pp_*` (VC01, not VC02) and runs Nucleus PLUS. Its
-  instruction set is not VideoCore IV's encoding; it is partly decoded. The Nintendo MP3 Player's
+  instruction set, a relative of VideoCore IV with its own encodings, is decoded: 99.99 % of the
+  reachable code, with an emulator that runs firmware routines bit-exact against independent
+  references, including the G.726 codec ([vc01-isa.md](vc01-isa.md)). The vector unit is partly
+  decoded. The Nintendo MP3 Player's
   chip, unidentified before, is a TI TMS320C54x DSP booted from a standard C54x boot table.
 - **Corrections to the prior art** ([prior-art.md](prior-art.md)), among them: the "firmware
   read-back" is a RAM test, 0x500 is 0x118 bytes, 0x905 has one parameter, 0x906 is
@@ -49,7 +53,8 @@ emulated cartridge built from [protocol.md](protocol.md) (below).
 |---|---|
 | [protocol.md](protocol.md) | Registers, transfer primitives, firmware upload, every command and response record, data structures, Garage Games; Micro deltas; the Nintendo MP3 Player's protocol |
 | [player.md](player.md) | The GBA program: boot, memory map, interrupts, scenes, firmware loading, video and audio pacing, controls, resume, sleep, Garage Games, Micro key file, MP3 Player structure |
-| [firmware.md](firmware.md) | The firmware images and `playan.fup`, their contents, the VC01 instruction set as far as it is decoded, the MP3 Player's C54x image |
+| [firmware.md](firmware.md) | The firmware images and `playan.fup`, their contents, the loader's update path, the MP3 Player's C54x image |
+| [vc01-isa.md](vc01-isa.md) | The VC01 instruction set: scalar encodings with evidence, coverage, the vector subset decoded so far |
 | [micro.md](micro.md) | Play-Yan Micro: differences from the original, address by address |
 | [nmp.md](nmp.md) | Nintendo MP3 Player: working notes, address by address |
 | [prior-art.md](prior-art.md) | shonumi's articles, documentation and GBE+, compared element by element |
@@ -92,9 +97,10 @@ V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/
   thumbnail scaling is unknown. Not yet exercised: music-mode sleep, the Micro's auto-play
   (0x4000/0x4001), the MP3 Player's background play and sleep, and the update path with a real
   `.fup`.
-- The VC01 instruction set beyond the forms in [firmware.md](firmware.md) 3, and with it the
-  codecs, the 240x176 to 240x160 fit, the brightness processing and the 8-bit audio conversion.
-- The update path after FIRMWARE_DOWNLOAD, how the cartridge paces frames and audio blocks that
+- The VC01 vector instructions beyond the G.726 subset, and with them the MPEG-4, MP3 and AAC
+  codecs, the 240x176 to 240x160 fit, the thumbnail scaling, the brightness processing and the 8-bit
+  audio conversion.
+- How the cartridge paces frames and audio blocks that
   the GBA never acknowledges, and the roles of CTRL bit 4 and the GO register
   ([player.md](player.md) 12).
 - Ground truth for decoded output needs either an emulator of the firmware or captures from real

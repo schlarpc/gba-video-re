@@ -144,13 +144,12 @@ state machine in the low byte of ctx+4 (bits 1-4) **[code: switch at 0x0C0108C8,
    AUDIO_MODE_SET and sets the audio rate to **16384 Hz** for the intro. States 6 and 7 animate,
    then the main menu starts.
 
-**Update path [inferred].** If an update part exists, the GBA still sends 0x800000 after 0x8001,
-and has a 0x80000100 callback registered at the same time as the 0x40800000 one. Firmware
-analysis found that `playan.fup` holds two complete images, not patches. The most consistent
-reading is this: after FIRMWARE_DOWNLOAD, the loader answers RESET_STANDBY by starting the
-downloaded image, which sends VC_STARTUP_INDICATION, instead of answering 0x40800000. The ROM image
-is then never uploaded. Without a download the loader answers 0x40800000 and the GBA uploads the
-ROM image. Confirming this needs the loader's 0x800000 handler.
+**Update path [fw].** The loader's side is traced in [firmware.md](firmware.md) 4. A successful
+FIRMWARE_DOWNLOAD starts the downloaded image at once, and that image sends VC_STARTUP_INDICATION;
+the loader sends FIRMWARE_DOWNLOAD_CONFIRM only when the download fails. So the GBA's
+0x80000100 callback, registered alongside the 0x40800000 one, is the success path: the ROM image is
+never uploaded. On failure, 0x40008001 leads the GBA to send 0x800000, the loader confirms with
+0x40800000, and the GBA falls back to uploading its ROM image.
 
 ### 3.2 Switching between music and video
 
@@ -469,8 +468,6 @@ Protocol details are in protocol.md 11, and full notes with addresses in [nmp.md
 - 0x400 AUDIO_MODE_SET(1, 0): sent on entering every audio scene, never confirmed. What do its
   two words select?
 - The meaning of 0x905(0) followed by 0x905(-1) in step-back (0x905 itself is settled, 5.3).
-- The update path after 0x8001 (3.1, [inferred]). This needs the loader's 0x800000 handler from
-  the firmware side.
 - How the cartridge knows a frame or audio block has been consumed. The GBA never signals it; the
   traces show no register access after a copy except CTRL bit 0 dropping **[run]**. So the cartridge
   must buffer (4 frame and 32 audio buffers were always enough in the model) or pace by its own
