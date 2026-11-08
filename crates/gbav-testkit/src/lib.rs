@@ -9,6 +9,13 @@
 //! - `GBAV_FUZZ_ITERS`: iterations per differential fuzz target (default 300);
 //! - `GBAV_ONLY=a,b`: restrict a whole-family test to these cart short ids.
 //!
+//! The Play-Yan family (`gbav-playyan`) is not in `verify/carts.csv` and has its own gates:
+//! - `PY_ROMS`: directory with `Play-Yan (Japan).gba`, `Play-Yan Micro (Japan).gba`,
+//!   `Nintendo MP3 Player (Europe) (En,Fr,De,Es,It).gba` and/or `playan.fup` (default: `GBAV_ROMS`);
+//! - `PY_MEDIA`: Nintendo's sample files, one directory per download (see docs/playyan/decoders.md);
+//! - `PY_VERIFY`: the Play-Yan manifests (default: `verify/playyan` of this tree);
+//! - `PY_VERIFY_MEDIA`: colon-separated extra directories searched for the manifests' media files.
+//!
 //! `CLib` loads a compiled C reference with `dlopen`; that is the only `unsafe` in the workspace.
 
 use std::ffi::{c_char, c_int, c_void, CString};
@@ -24,6 +31,29 @@ pub fn repo_root() -> PathBuf {
 
 pub fn roms_dir() -> Option<PathBuf> {
     let d = PathBuf::from(std::env::var_os("GBAV_ROMS")?);
+    d.is_dir().then_some(d)
+}
+
+/// The Play-Yan family's files, by their No-Intro names.
+pub const PLAYYAN_FILES: [&str; 4] =
+    ["Play-Yan (Japan).gba", "Play-Yan Micro (Japan).gba", "Nintendo MP3 Player (Europe) (En,Fr,De,Es,It).gba", "playan.fup"];
+
+/// Play-Yan firmware sources: `PY_ROMS`, else `GBAV_ROMS` if it holds any of [`PLAYYAN_FILES`].
+pub fn playyan_roms() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("PY_ROMS") {
+        let d = PathBuf::from(p);
+        return d.is_dir().then_some(d);
+    }
+    let d = roms_dir()?;
+    PLAYYAN_FILES.iter().any(|f| d.join(f).is_file()).then_some(d)
+}
+
+/// Play-Yan manifests: `PY_VERIFY`, else `verify/playyan`.
+pub fn playyan_verify() -> Option<PathBuf> {
+    let d = match std::env::var_os("PY_VERIFY") {
+        Some(p) => PathBuf::from(p),
+        None => verify_dir()?.join("playyan"),
+    };
     d.is_dir().then_some(d)
 }
 

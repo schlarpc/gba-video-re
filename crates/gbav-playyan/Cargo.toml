@@ -1,0 +1,13 @@
+[package]
+name = "gbav-playyan"
+version = "0.1.0"
+description = "Play-Yan / Play-Yan Micro cartridge codecs as the VC01 firmware implements them: MPEG-4 SP + G.726 (ASF), AAC-LC (MP4), MP3; GBA frame, thumbnail and 8-bit audio output stages"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gbav-common = { path = "../gbav-common" }
+
+[dev-dependencies]
+gbav-testkit = { path = "../gbav-testkit" }

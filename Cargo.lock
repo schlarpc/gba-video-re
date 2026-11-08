@@ -20,6 +20,7 @@ dependencies = [
  "gbav-common",
  "gbav-fvmv",
  "gbav-hydrogen",
+ "gbav-playyan",
  "gbav-rom",
  "gbav-vx",
 ]
@@ -47,6 +48,14 @@ dependencies = [
 
 [[package]]
 name = "gbav-majesco"
+version = "0.1.0"
+dependencies = [
+ "gbav-common",
+ "gbav-testkit",
+]
+
+[[package]]
+name = "gbav-playyan"
 version = "0.1.0"
 dependencies = [
  "gbav-common",

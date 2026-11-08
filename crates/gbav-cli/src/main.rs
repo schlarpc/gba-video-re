@@ -3,6 +3,7 @@
 
 mod dispatch;
 mod output;
+mod playyan;
 
 use dispatch::{dispatch, Job};
 use gbav_common::manifest::{self, Check, Known, Manifest, StreamManifests};
@@ -16,6 +17,10 @@ const USAGE: &str = "\
 usage:
   gbav list ROM
   gbav decode ROM --stream S --out DIR [--start-frame N] [--count M] [--png | --ppm | --raw] [--wav]
+  gbav list MEDIA --firmware FW...                    (Play-Yan: ASF / MP4 / MP3 + your ROM or playan.fup)
+  gbav decode MEDIA --firmware FW... --out DIR [--png | --ppm | --raw] [--wav] [--gba-audio]
+              [--brightness N] [--volume N] [--start-frame N] [--count M] [--image NAME]
+  gbav verify MEDIA... --firmware FW... --manifests DIR [--volume N] [--prev-rate HZ]
   gbav verify ROM|DIR... [--no-audio] [--jobs N]
   gbav stats ROM
   gbav make-segments ROM|DIR... [--seconds S]     (maintainers: write verify/<family>/*.audio_seg_md5.csv.gz)
@@ -28,6 +33,9 @@ native PCM from the start, as 16-bit mono (values beyond 16 bits saturate).";
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
+        Some("list") if playyan::wants(&args[1..]) => playyan::cmd_list(&args[1..]),
+        Some("decode") if playyan::wants(&args[1..]) => playyan::cmd_decode(&args[1..]),
+        Some("verify") if playyan::wants(&args[1..]) => playyan::cmd_verify(&args[1..]),
         Some("list") => cmd_list(&args[1..]),
         Some("decode") => cmd_decode(&args[1..]),
         Some("verify") => cmd_verify(&args[1..]),

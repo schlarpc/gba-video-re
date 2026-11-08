@@ -8,6 +8,7 @@ members = [
     "crates/gbav-majesco",
     "crates/gbav-hydrogen",
     "crates/gbav-ads",
+    "crates/gbav-playyan",
     "crates/gbav-cli",
     "crates/gbav-testkit",
 ]

@@ -13,6 +13,7 @@ gbav-vx = { path = "../gbav-vx" }
 gbav-fvmv = { path = "../gbav-fvmv" }
 gbav-hydrogen = { path = "../gbav-hydrogen" }
 gbav-ads = { path = "../gbav-ads" }
+gbav-playyan = { path = "../gbav-playyan" }
 [[bin]]
 name = "gbav"
 path = "src/main.rs"
