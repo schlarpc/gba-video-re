@@ -371,7 +371,7 @@ headphones are plugged in; the cartridge decides whether to send audio data [inf
 | rec[1] | VC address of a video frame, or 0 for none |
 | rec[2] | not read by the GBA |
 | rec[3] | VC address of an audio block, or 0 for none |
-| rec[4] | audio block size in bytes, total for both channels, at most 0x480. Music sends 0x480-byte blocks from two alternating buffers; sound effects 0x2BA-byte blocks **[lle]**. The stream is paced by the cartridge's own audio DMA to its headphone codec **[lle]** (larger values are clamped and log error 3; 0 logs error 3 and is skipped) |
+| rec[4] | audio block size in bytes, total for both channels, at most 0x480. Music sends 0x480-byte blocks from two alternating buffers; sound effects 0x2BA-byte blocks **[lle]**. The stream is paced by the cartridge's own audio DMA to its headphone codec **[lle]**; the model's throttle is incomplete (it decodes about 3x too fast), so record rates measured in it are not reliable (larger values are clamped and log error 3; 0 logs error 3 and is skipped) |
 | rec[5] | music: trackbar position 0..0x6400. Stored at 0x03001680 |
 | rec[6] | music: elapsed seconds; video: elapsed **milliseconds**. Stored at 0x03001684 |
 | rec[7] | not read |

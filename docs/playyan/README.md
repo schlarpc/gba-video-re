@@ -127,6 +127,8 @@ V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/
   MP3 Player's background play and sleep.
 - Standalone bit-exact decoders (C and Rust) for this family, from the firmware's kernels; AAC on a
   real bitstream (its scalar front end is not modelled yet).
+- The emulator's audio throttle: the real music firmware decodes about 3x faster than real time in
+  the model (the audio comes out right, but record rates measured there are not).
 - How the cartridge paces frames and audio blocks that
   the GBA never acknowledges, and the roles of CTRL bit 4 and the GO register
   ([player.md](player.md) 12).

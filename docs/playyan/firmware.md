@@ -127,7 +127,26 @@ Entry layout, as the loader reads it: offset (+0), payload size without check by
 (+8, 1 = Play-Yan, 2 = Micro), kind mask (+9), unused (+10-14), check byte (+15). The header's check
 byte is at +0x3F.
 
-## 5. Nintendo MP3 Player: a TI TMS320C54x DSP
+## 5. MP3 sample rates and the 8-bit speaker stream
+
+The music firmware accepts **MPEG-1 Layer III only** (32, 44.1 and 48 kHz), as Nintendo's
+specification says. Its header check (0x20D74 onward in the original's music image) needs the
+12-bit sync, so MPEG-2.5 frames (8-12 kHz) never sync (error 4), and it requires the MPEG-1 ID bit,
+so MPEG-2 frames (16-24 kHz) fail (error 2). In the emulator such files are left out of the list
+(the GBA then shows "no music files") or end at once when played. The decoder nevertheless holds
+tables for all nine MPEG rates **[fw]**.
+
+The scalar routine at 0x3185E makes the 8-bit stream for the GBA speaker when no headphones are
+plugged in: volume (s x vol / 32, clamped), then the high byte of each sample, no dither or filter,
+in 576-sample blocks. Above 16,384 Hz it decimates by nearest neighbour to 16,384 samples/s. For
+sources at or below 16,384 Hz it repeats samples by a phase test with the wrong scale (a shift of
+13 instead of 14 at 0x21BFE), so a source of N Hz between 8,192 and 16,384 Hz comes out at
+2N - 8,192 samples/s (an 11,025 Hz tone would play 1.18x fast), and lower rates at a flat 8,192.
+This is a real bug, measured by running the routine in the emulator, but **unreachable**: only the
+disabled low-rate formats could feed it. It is unchanged in the Micro's music image and in the
+v1.11 update. **[fw]**
+
+## 6. Nintendo MP3 Player: a TI TMS320C54x DSP
 
 The GBA loader (0x08063D30 in the boot program) uploads a standard **C54x boot table** from ROM
 0x0A8F34 **[code]**: keyword 0x08AA, wait-state settings 0x7FFF and 0xF800 (SWWSR, BSCR), entry
@@ -137,7 +156,7 @@ the most common word, and 0xF4E4 (far return) is common. Some sections load into
 pages, so it is a C54x with extended program memory, of the VC5409/VC5416 class **[inferred]**.
 The image's codec has not been examined.
 
-## 6. Open questions
+## 7. Open questions
 
 - What an AES-like GF(2^8) table in the loader is for.
 - The mode-0x28 read of VC 0x80000 before every upload, and the host-interface registers at

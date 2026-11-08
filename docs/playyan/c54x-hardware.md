@@ -1,7 +1,7 @@
 # The Nintendo MP3 Player's DSP board
 
 The Nintendo MP3 Player's media chip is a **TI TMS320VC5416** DSP. Its firmware, a TI C runtime
-with DSP/BIOS, is uploaded by the GBA as a standard C54x boot table ([firmware.md](firmware.md) 5).
+with DSP/BIOS, is uploaded by the GBA as a standard C54x boot table ([firmware.md](firmware.md) 6).
 This page is the board as the firmware uses it, inferred from the firmware and proven by running
 it: a C54x core written from TI's manuals (SPRU172C, SPRU131G; data sheet SPRS095P; bootloader
 SPRA602F), its decoding cross-checked against binutils on all 44,828 instructions of the image and
