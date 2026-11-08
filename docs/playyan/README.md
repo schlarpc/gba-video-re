@@ -120,16 +120,20 @@ of ffmpeg's.
   blocks/s. This run corrected four points of
   the static reading: 0x0030 and 0x0070, the `meteor.fup` entry flag and the directory entry type.
 
-Claims tagged **[lle]** in the other documents come from these runs. The emulator,
-its mGBA patch and the traces are local and not in this repository; the capture and oracle scripts
-that drive it are in `tools/playyan/`.
+Claims tagged **[lle]** in the other documents come from these runs. The emulator is in
+[tools/playyan](../../tools/playyan/README.md): the VC01 instruction-set model and its test suites,
+the C cores of the VC01 and the C54x with their peripheral models, the mGBA patch (MPL-2.0) and the
+harness, and the capture tools. It needs your own ROMs and `playan.fup`, from which
+`tools/playyan/extract_firmware.py` builds the firmware images (checked against the hashes in
+[firmware.md](firmware.md)). To reproduce the manifests in [verify/playyan](../../verify/playyan/README.md),
+capture a file with `tools/playyan/emu/capture.py` and convert it with `make_manifests.py --out DIR`.
 
 ## Emulator check (high-level cartridge model)
 
 All three ROMs were run in a patched mGBA against an emulated cartridge built from
 [protocol.md](protocol.md): register behaviour in C inside the core, the firmware's behaviour
 modelled at a high level in Python, media decoded with ffmpeg from a host folder acting as the SD
-card. The emulator, its patch and the traces are local and not in this repository.
+card. This model is `tools/playyan/emu/pyan_model.py` and `nmp_model.py`: `run.py` without `--lle`.
 
 - All three boot to their menus and play video (Play-Yan, Micro: ASF and MP4) and music. The
   original's browse, seek, pause, frame step, step-back, brightness, volume, stop, resume, end of

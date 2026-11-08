@@ -9,14 +9,15 @@ ROM (*Play-Yan* or *Play-Yan Micro*) runs in mGBA with a bridge to an emulated V
 the real firmware image the GBA uploads (or, for v1.11, the image the loader reads from
 `playan.fup` on the card). Each capture boots from power-on, opens the browser, presses A on the
 only file on the SD card and touches nothing else until the cartridge's end record (0x40000801
-music, 0x40000701 video). Every capture reached it. The emulator is local and not in this
-repository; the scripts that drive it and make these files are `tools/playyan/emu/capture.py` and
-`tools/playyan/emu/make_manifests.py`. This is not a capture from hardware: see
-[assumptions](#emulator-assumptions).
+music, 0x40000701 video). Every capture reached it. The emulator is in
+[tools/playyan](../../tools/playyan/README.md), and `tools/playyan/emu/capture.py` and
+`make_manifests.py` make these files ([Reproducing](#reproducing)). This is not a capture from
+hardware: see [assumptions](#emulator-assumptions).
 
 ## Files
 
-`<image>_<stem>.<kind>.csv.gz`: gzip, CSV with a header line, mtime 0.
+`<image>_<stem>.<kind>.csv.gz`: gzip (mtime 0, the file's own name in the header), CSV with a
+header line.
 
 `image` is the cartridge firmware image that decoded the file (the GBA program only displays it):
 
@@ -98,3 +99,28 @@ Hashes of firmware routines run on our test inputs (not full-system captures; [d
 cargo test --release -p gbav-playyan            # PY_ROMS (or GBAV_ROMS), PY_MEDIA, PY_VERIFY_MEDIA
 target/release/gbav verify FILE... --firmware FW... --manifests verify/playyan
 ```
+
+## Reproducing
+
+With your ROMs and `playan.fup` in `PY_ROMS` and Nintendo's files in `PY_MEDIA`
+([tools/playyan/README.md](../../tools/playyan/README.md) has the setup):
+
+```sh
+python3 tools/playyan/extract_firmware.py      # firmware images, checked by sha1
+tools/playyan/emu/build.sh                     # the patched mGBA core
+cd tools/playyan/emu
+python3 capture.py BUILD KIND FILE [--name NAME] --tag TAG    # BUILD orig | v111 | micro, KIND music | video
+python3 make_manifests.py --out DIR TAG...     # then cmp DIR/* with verify/playyan
+```
+
+`BUILD` is the cartridge and firmware: `orig` decodes on `py_fw0`/`py_fw1`, `v111` puts
+`playan.fup` on the card (`fup_sec0`/`fup_sec1`), `micro` is the Play-Yan Micro. Garage Game files
+go on the card as `X<NAME>.ASF` (`--name`); `make_manifests.py` names each set by the file's md5 in
+[media.csv](media.csv). Checked on 2026-11-08 with the published emulator: the Micro's `AVOID` and
+`mp4sample_movie_zip` sets come out byte-identical, and `py_fw0_AVOID`, `fup_sec0_AVOID` and
+`py_fw1_tone_44100` identical in every hash column. In the original's and v1.11's sets the
+`gba_cycle` column differs (mostly by one 1,024-cycle coupling slice, two frames of
+`fup_sec0_AVOID` by up to 0.05 s): those sets were captured with an earlier build of the
+emulator, before its last changes to the peripheral model and the mGBA coupling, which moved the
+original GBA ROM's record timing but no output. No decoder or test reads `gba_cycle`. The tones and the chirp are our files, not published; their md5s are in
+media.csv, and a new encode will not match them.

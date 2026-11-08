@@ -6,7 +6,9 @@ This page is the board as the firmware uses it, inferred from the firmware and p
 it: a C54x core written from TI's manuals (SPRU172C, SPRU131G; data sheet SPRS095P; bootloader
 SPRA602F), its decoding cross-checked against binutils on all 44,828 instructions of the image and
 against a community Ghidra C54x module, runs the real firmware under the real GBA ROM in a patched
-mGBA.
+mGBA. The core and the board model are `tools/playyan/c54x/c54x.c` and `nmphw.c` (`nmpm.py` runs them
+without a GBA, `c54test.py` holds the instruction tests, `emu/nmp_lle_model.py` couples them to mGBA;
+[tools/playyan](../../tools/playyan/README.md)).
 
 ## Result
 

@@ -3,7 +3,10 @@
 The peripherals of the Play-Yan's VC01 chip, inferred from the firmware code and proven by running
 the real firmware on a model of them: in an emulator, the GBA ROM drives the real loader, music and
 video images, and the firmware boots, reads the SD card, answers commands and streams audio. There
-is no VC01 documentation; every register below comes from the firmware.
+is no VC01 documentation; every register below comes from the firmware. The model is
+`tools/playyan/vc01/vc01hw.c` around the C core `vc01core.c`; `tools/playyan/vc01/vcm.py` runs it
+without a GBA and `tools/playyan/emu/lle_model.py` couples it to the patched mGBA
+([tools/playyan](../../tools/playyan/README.md)).
 
 Tags: **[C]** the real firmware runs correctly through it in the emulator; **[P]** read from the
 code and consistent with the run; **[G]** a guess the firmware does not contradict. Addresses are

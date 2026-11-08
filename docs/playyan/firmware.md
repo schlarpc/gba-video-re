@@ -159,7 +159,8 @@ v1.11 and Micro stream shifted by one sample.
 
 The GBA loader (0x08063D30 in the boot program) uploads a standard **C54x boot table** from ROM
 0x0A8F34 **[code]**: keyword 0x08AA, wait-state settings 0x7FFF and 0xF800 (SWWSR, BSCR), entry
-point 0x42FC, then 91 sections ([protocol.md](protocol.md) 11.3). The image confirms the
+point 0x42FC, then 91 sections ([protocol.md](protocol.md) 11.3). The boot table is 126,560 bytes, sha1
+d0daecfbb18db148df0b291f8cb8d40bfcca2662. The image confirms the
 architecture **[fw]**: the interrupt vectors at 0x80 are far branches, 0xF495 (the C54x `NOP`) is
 the most common word, and 0xF4E4 (far return) is common. Some sections load into extended program
 pages, so it is a C54x with extended program memory, of the VC5409/VC5416 class **[inferred]**.

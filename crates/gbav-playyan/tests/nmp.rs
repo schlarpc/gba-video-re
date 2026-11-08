@@ -1,5 +1,5 @@
 //! Nintendo MP3 Player DSP decoder (gbav_playyan::nmp) against hashes of the DSP firmware's own
-//! output (the C54x emulator, which is local and not in this repository; harness tools/playyan/nmp/oracle_md5.py).
+//! output (the C54x emulator in tools/playyan/c54x; harness tools/playyan/nmp/oracle_md5.py).
 //!
 //! Gates: `PY_ROMS` (directory with `Nintendo MP3 Player (Europe) (En,Fr,De,Es,It).gba`) and
 //! `PY_MEDIA` (Nintendo's sample files, `playan_support_sample_music/sample_music.mp3`); without

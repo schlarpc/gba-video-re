@@ -211,8 +211,9 @@ reference/playyan/aac/pyaacdec FILE.mp4 OUT.pcm   reference/playyan/nmp/pynmpdec
 ```
 
 The tools in `tools/playyan/` are the oracles and the manifest capture (`emu/capture.py`,
-`emu/make_manifests.py`). They need the emulator, which is not published; `PLAYYAN_WORK` names
-the local tree that holds it. The test-stream makers (`video/make_tests.sh`,
+`emu/make_manifests.py`), with the emulators they drive (`vc01/`, `c54x/`, `emu/`;
+[tools/playyan/README.md](../../tools/playyan/README.md)). Run `tools/playyan/extract_firmware.py`
+first: it builds the firmware images from `PY_ROMS` into `PLAYYAN_WORK` (default `tmp/playyan`). The test-stream makers (`video/make_tests.sh`,
 `video/dcvlc_transcode.py`, `g726/rate_splice.py`, `mp3/gen_media.py`, `nmp/make_test_mp3.sh`,
 `nmp/craft.py`) need only ffmpeg or LAME.
 

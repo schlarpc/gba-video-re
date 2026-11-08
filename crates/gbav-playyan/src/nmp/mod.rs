@@ -7,7 +7,7 @@
 //! table regions are in this source.
 //!
 //! The model is bit-exact against the DSP firmware running in the C54x emulator
-//! (local, not in this repository; oracle harness tools/playyan/nmp): per stage and end to end, see
+//! (tools/playyan/c54x; oracle harness tools/playyan/nmp): per stage and end to end, see
 //! docs/playyan/decoders.md. Stages, with the DSP routine each one reproduces:
 //!
 //! * bitstream: MPEG-1, MPEG-2 and MPEG-2.5 Layer III (the DSP decodes all three, unlike the

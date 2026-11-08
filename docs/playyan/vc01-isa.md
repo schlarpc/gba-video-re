@@ -36,7 +36,7 @@ Routines run in the emulator, all passing:
 | FIRMWARE_LIST and FIRMWARE_DOWNLOAD workers (0xC84F8, 0xC6D0C) on the real `playan.fup` | the two images extracted independently | RAM equals both sections byte for byte at the jump to 0x200 |
 | G.726 encoders and decoders at 16, 24, 32 and 40 kbit/s, predictor, quantiser, update (video image 0x3E6-0xEBE; scalar and vector code) | Sun's g72x reference C | 6,000, bit-exact, including the whole codec state per sample |
 | MPEG-4 kernels: IDCT, dequantisation, AC prediction, motion compensation, output, bitstream unpacker | ffmpeg / ISO 14496-2, IEEE-1180 | 2,500 + 24 |
-| MP3 kernels: dct32, IMDCT, synthesis window, requantiser | fixed-point models; PCM within 1 LSB of ffmpeg | 98 |
+| MP3 kernels: dct32, IMDCT, synthesis window, requantiser | float ISO formulas, and bit-exact the C reference decoder's kernels (`reference/playyan/mp3`); PCM within 1 LSB of ffmpeg | 98 |
 | AAC kernels: inverse quantisation, window, FFT, IMDCT (N = 2048 and 256), filter bank, PCM out | a fixed-point model following FAAD2 | 4,491 |
 | pixel pipeline: YUV to RGB565, crop and scale, brightness | the Garage Game thumbnail hashes | all |
 
@@ -50,6 +50,12 @@ serves the real GBA ROM (README, "Real firmware"). A C port of the emulator runs
 instructions per second and matches the Python model instruction by instruction on all the tests
 above. The behaviours marked "real firmware" below were found that way: the routines in the
 table do not exercise them.
+
+The model, the C core and every suite in the table are in
+[tools/playyan/vc01](../../tools/playyan/README.md): `vc01.py` (decoder and scalar CPU), `vc01v.py`
+(vector unit), `vc01core.c` (the C port), `lockstep.py` (C against Python), `vc01dis2.py` (the
+disassembler), `tests.py`, `g726_test.py` and `vec/*_test.py` (the suites above). They load the
+firmware images that `tools/playyan/extract_firmware.py` builds from your own ROMs and `playan.fup`.
 
 ## Coverage
 
@@ -304,7 +310,7 @@ Kernels matched (references)
     firmware's own decode in the LLE run (C port) reproduces all 13 Garage thumbnail hashes.
   MP3 (py_fw1): dct32 0x49c (libmad Lee structure, constants 2cos(k pi/64) float32 *2^24), IMDCT long
     0xa96c / short 0x12446 (own 67-multiply structure), synthesis window 0x316b4 (libmad D.dat),
-    requantiser 0x35058 (pow43 table 0x244a0, gain table 0x234a0) -- all bit-exact vs fixed-point reference models; firmware PCM vs ffmpeg/minimp3 max 1 LSB, 98.6% identical.  8-bit GBA PCM is
+    requantiser 0x35058 (pow43 table 0x244a0, gain table 0x234a0) -- all bit-exact vs the C reference's kernels and fixed-point models; firmware PCM vs ffmpeg/minimp3 max 1 LSB, 98.6% identical.  8-bit GBA PCM is
     scalar (0x3185e).
   AAC (mi_fw0/fup_sec0): FAAD2 C structure, Alphamosaic vector helpers: window mul/add, complex
     multiplies, 16-point FFT, iquant (cube-root table 0x8948), PCM out, and the whole IMDCT (0x97d6
