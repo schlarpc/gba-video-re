@@ -99,7 +99,8 @@ CPU behaviour the firmware needs (all [C]; see vc01-isa.md)
 The GBA side (STAT bit 7, RSTAT bit 4, the windows) is the register model of
 [protocol.md](protocol.md); the VC01's memory is shared with it. Mode-0x70 writes to VC
 0x1xxxxxxx reach the chip's registers (the kick). CTRL bit 3 low holds the core in reset; a rising
-CTRL bit 2 is a rising edge on GPIO pin 2.
+CTRL bit 2 is a rising edge on GPIO pin 2. Reads through the pixel window (+0x500-0x6FF) convert
+RGB565 to BGR555 ([protocol.md](protocol.md) 8.2).
 
 ```
   The VC01 runs in slices of 35112 GBA cycles (1/8 frame), executing

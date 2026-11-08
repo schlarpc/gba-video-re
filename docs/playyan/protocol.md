@@ -69,7 +69,7 @@ function that touches the register (Play-Yan original).
 | +0x022 | BOOT | W | 1 during the WS0 boot upload, 0 after it. Only in the unused boot path | 0C023420 |
 | +0x100-0x2FF | WIN_W | W | 512-byte write window, address-incrementing (16-bit DMA3 target) | 0C0247D4, 0C023334 |
 | +0x300-0x4FF | WIN_R0 | R | 512-byte read window. Used for responses, lists, ID3 data, audio and the RAM test | 0C024544 (32 B record), 0C025454, 0C0261D0, 0C024CB8 |
-| +0x500-0x6FF | WIN_R1 | R | 512-byte read window. Used for video frames and thumbnails only | 0C025454 |
+| +0x500-0x6FF | WIN_R1 | R | 512-byte read window. Used for video frames and thumbnails only. Reads through it are converted from the firmware's RGB565 to the GBA's BGR555 (8.2) **[lle]** | 0C025454 |
 
 MODE values **[code]**. The names are ours, and the bit meanings are **[inferred]** from usage:
 
@@ -418,7 +418,13 @@ Entry (268 bytes):
 
 ### 8.2 Thumbnails and frames
 
-Plain BGR555 halfwords, row-major, the GBA's bitmap format: 60 x 40 = 0x12C0 bytes for thumbnails
+The GBA receives plain BGR555 halfwords, row-major, the GBA's bitmap format, and does no conversion
+itself: frames are DMA'd straight into VRAM, and the Garage hash sums the halfwords as read. The
+firmware, however, writes **RGB565** (its packing always puts red in the top bits). The conversion
+`p >> 11 | ((p >> 6) & 31) << 5 | (p & 31) << 10` therefore happens on the cartridge, on reads
+through WIN_R1 **[lle]**: only with it do the firmware's own thumbnails match the hash table, and
+only then does the GBA ROM start the Garage Game instead of playing the file as video. Whether the
+VC01's host port or another part of the cartridge does it cannot be told from either program. Sizes: 60 x 40 = 0x12C0 bytes for thumbnails
 and previews, 240 x 160 = 0x12C00 for frames. The GBA asks for these sizes in 0x500 and 0x700.
 Fitting the 240 x 176 source video into 240 x 160 is the cartridge's job.
 
