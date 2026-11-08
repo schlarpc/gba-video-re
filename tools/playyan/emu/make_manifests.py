@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Ground-truth manifests from $PY_CAPTURE_DIR/cap/<tag>/ captures (capture.py) -> verify/playyan/.
 
-  make_manifests.py [TAG ...]        (default: every capture that has info.json)
+  make_manifests.py [--out DIR] [TAG ...]   (default: every capture that has info.json, into verify/playyan)
+
+Run it with --out on a scratch directory and compare (cmp) with verify/playyan to check a capture
+against the committed manifests: the files are gzip with mtime 0, so equal captures give equal bytes.
 
 Per capture <build>_<stem> (build = the cartridge image that decoded it: py_fw1, fup_sec1, mi_fw1,
 py_fw0, fup_sec0, mi_fw0):
@@ -19,8 +22,10 @@ Segment md5 = md5 of the concatenated bytes of its blocks (the repo's make-segme
 import csv, glob, gzip, hashlib, io, json, os, sys
 import numpy as np
 
-HERE = os.environ.get('PY_CAPTURE_DIR', os.path.join(os.environ.get('PLAYYAN_WORK', ''), 'emu', 'final'))
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'verify', 'playyan')
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+import workdir  # noqa: E402
+HERE = os.environ.get('PY_CAPTURE_DIR') or os.path.join(workdir.WORK, 'capture')
+OUT = os.path.join(workdir.REPO, 'verify', 'playyan')
 
 DECODER = {('orig', 'music'): 'py_fw1', ('v111', 'music'): 'fup_sec1', ('micro', 'music'): 'mi_fw1',
            ('orig', 'video'): 'py_fw0', ('v111', 'video'): 'fup_sec0', ('micro', 'video'): 'mi_fw0'}
@@ -50,6 +55,11 @@ def one(capdir):
     stem = os.path.splitext(info['name'])[0]
     if stem.startswith('X') and 'garage' in os.path.basename(capdir):
         stem = stem[1:]          # Garage ASFs were renamed X<NAME>.ASF so the GBA plays them as video
+    # the stem of a known file is the one in verify/playyan/media.csv (by md5): the two MP4 samples
+    # differ only in letter case and are named by where they were published
+    for row in csv.DictReader(open(os.path.join(workdir.REPO, 'verify', 'playyan', 'media.csv'))):
+        if row['md5'] == info['md5']:
+            stem = row['stem']
     base = os.path.join(OUT, '%s_%s' % (build, stem))
     res = dict(tag=os.path.basename(capdir), build=build, file=os.path.basename(info['file']), md5=info['md5'])
     # frames
@@ -104,8 +114,12 @@ def one(capdir):
 
 
 def main():
+    global OUT
+    args = sys.argv[1:]
+    if args[:1] == ['--out']:
+        OUT = os.path.abspath(args[1]); args = args[2:]
     os.makedirs(OUT, exist_ok=True)
-    tags = sys.argv[1:] or sorted(os.path.basename(os.path.dirname(p)) for p in glob.glob(os.path.join(HERE, 'cap', '*', 'info.json')))
+    tags = args or sorted(os.path.basename(os.path.dirname(p)) for p in glob.glob(os.path.join(HERE, 'cap', '*', 'info.json')))
     allres = []
     tags = [t for t in tags if not t.startswith('x_')]     # x_*: pacing experiments, not ground truth
     for t in tags:

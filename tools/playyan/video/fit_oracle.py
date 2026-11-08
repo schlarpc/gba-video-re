@@ -4,8 +4,8 @@ Python VC01 model on an I420 picture and print/compare the 240x160 RGB565 result
 usage: fit_oracle.py YUV W H INDEX [DUMP.bin]"""
 import sys, time
 import os
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
-ISA = WORK + '/firmware/isa'
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
+ISA = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'vc01')  # the VC01 model (tools/playyan/vc01)
 sys.path.pop(0)
 import numpy  # noqa: F401
 sys.path.insert(0, ISA); sys.path.insert(0, ISA + '/vec')

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Oracle for the firmware's motion compensation wrapper py_fw0 0x38a8 (ctx, mvx, mvy, 1-rc):
-run it in the VC01 emulator (firmware/isa, vc01v vector model) for random MB positions and motion
+run it in the VC01 emulator (tools/playyan/vc01, vc01v vector model) for random MB positions and motion
 vectors of any range, and compare with the window model the Rust/C decoders implement (fw_mc16).
 usage: python3 tools/playyan/video/mc_oracle.py [N] [seed]   (run from anywhere; ~0.3 s per case)"""
 import sys, random
 import os
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
-ISA = WORK + '/firmware/isa'
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
+ISA = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'vc01')  # the VC01 model (tools/playyan/vc01)
 sys.path.pop(0)
 import numpy  # noqa: F401  (before isa/ is on sys.path: isa/dis.py shadows the stdlib)
 sys.path.insert(0, ISA); sys.path.insert(0, ISA + '/vec')

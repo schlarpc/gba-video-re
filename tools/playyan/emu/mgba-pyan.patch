@@ -1,0 +1,1368 @@
+SPDX-License-Identifier: MPL-2.0
+This patch modifies mGBA (https://github.com/mgba-emu/mgba) and is licensed under mGBA's
+licence, the Mozilla Public License 2.0, not under this repository's MIT licence.
+Applies to the nixpkgs libretro.mgba source with 'patch -p1' (tools/playyan/emu/build.sh does it).
+Adds the Play-Yan family cartridge (src/gba/cart/pyan.c): the register file, chip memory, transfer
+modes and record IRQs of the Play-Yan, Play-Yan Micro and Nintendo MP3 Player, with hooks for the
+Python models and for the VC01 / C54x emulators (LLE), the pixel window's RGB565 to BGR555 bridge
+and the bus trace.
+
+--- a/include/mgba/internal/gba/cart/pyan.h	1969-12-31 16:00:00.000000000 -0800
++++ b/include/mgba/internal/gba/cart/pyan.h	2026-11-07 23:12:27.608395743 -0800
+@@ -0,0 +1,46 @@
++/* Play-Yan family cartridge model for mGBA -- tools/playyan/emu.
++ *
++ * Bus mechanics are modelled here in C (register file, VC/DSP memory, transfer modes, IRQ
++ * delivery, trace). High-level "firmware" behaviour (commands -> records, media decoding) lives
++ * in Python (tools/playyan/emu/pyan_model.py), reached through one event callback.
++ * Spec under test: docs/playyan/protocol.md. */
++#ifndef GBA_PYAN_H
++#define GBA_PYAN_H
++
++#include <mgba-util/common.h>
++
++CXX_GUARD_START
++
++struct GBA;
++
++enum {
++	PYAN_NONE = 0,
++	PYAN_ORIG = 1,   /* Play-Yan (ZMAJ) */
++	PYAN_MICRO = 2,  /* Play-Yan Micro (ZMBJ) */
++	PYAN_NMP = 3,    /* Nintendo MP3 Player (ZMDE) */
++};
++
++extern int GBAPYanFamily;
++
++bool GBAPYanDetect(struct GBA* gba);
++void GBAPYanReset(struct GBA* gba);
++
++static inline bool GBAPYanClaims(uint32_t address) {
++	if (!GBAPYanFamily) {
++		return false;
++	}
++	uint32_t r = address >> 24;
++	if (GBAPYanFamily == PYAN_NMP) {
++		return r == 0x0E || r == 0x0F;
++	}
++	return r == 0x09 || r == 0x0B || r == 0x0D;
++}
++
++uint32_t GBAPYanLoad(struct GBA* gba, uint32_t address, int width);
++void GBAPYanStore(struct GBA* gba, uint32_t address, uint32_t value, int width);
++/* NMP GPIO (0x080000C4/C6/C8) writes; returns true if consumed */
++bool GBAPYanGPIOWrite(struct GBA* gba, uint32_t address, uint16_t value);
++
++CXX_GUARD_END
++
++#endif
+--- a/libretro-build/Makefile.common	1969-12-31 16:00:01.000000000 -0800
++++ b/libretro-build/Makefile.common	2026-11-07 23:12:27.608395743 -0800
+@@ -92,6 +92,7 @@
+ 					$(CORE_DIR)/src/gba/cart/gpio.c \
+ 					$(CORE_DIR)/src/gba/cart/ereader.c \
+ 					$(CORE_DIR)/src/gba/cart/unlicensed.c \
++					$(CORE_DIR)/src/gba/cart/pyan.c \
+ 					$(CORE_DIR)/src/gba/hle-bios.c \
+ 					$(CORE_DIR)/src/gba/input.c \
+ 					$(CORE_DIR)/src/gba/io.c \
+--- a/src/gba/cart/pyan.c	1969-12-31 16:00:00.000000000 -0800
++++ b/src/gba/cart/pyan.c	2026-11-08 10:45:09.120289488 -0800
+@@ -0,0 +1,1089 @@
++/* Play-Yan family cartridge model for mGBA -- tools/playyan/emu (see pyan.h).
++ *
++ * Exported control API (all retro_pyan_*, so link.T exports them) is used by the Python
++ * frontend through ctypes. */
++#include <mgba/internal/gba/cart/pyan.h>
++
++#include <mgba/core/timing.h>
++#include <mgba/internal/arm/arm.h>
++#include <mgba/internal/arm/macros.h>
++#include <mgba/internal/gba/gba.h>
++#include <mgba/internal/gba/io.h>
++
++#include <stdarg.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++int GBAPYanFamily = PYAN_NONE;
++
++/* ---------------------------------------------------------------- exported state */
++
++typedef int (*pyan_cb_t)(int ev, uint32_t a, uint32_t b, uint32_t c);
++
++enum {
++	EV_RESET_ASSERT = 1,
++	EV_RESET_RELEASE = 2,
++	EV_DOORBELL = 3,
++	EV_W32 = 4,
++	EV_ACK = 5,
++	EV_CTRL = 6,
++	EV_DELIVERED = 7,
++	EV_CLEARED = 8,
++	EV_IRQ_RETRY = 9,
++	EV_NMP_CTRL = 10,
++	EV_NMP_DOORBELL = 11,
++	EV_NMP_GPIO = 12,
++	EV_BOOTREG = 14,
++	EV_ANOMALY = 15,
++	EV_LLE_IRQ = 16,
++};
++
++enum {
++	P_READY_POLLS = 0,  /* STAT bit 7 reads 0 this many times after reset release */
++	P_RSTAT_POLLS,      /* RSTAT bit 4 reads 0 this many times after each read request / chunk */
++	P_REC_GAP,          /* cycles between a record being cleared and the next delivery */
++	P_IRQ_RETRY,        /* cycles before re-raising an unacknowledged record IRQ (0 = never) */
++	P_NMP_ON_ACK,       /* NMP: 1 = next record after CONTROL 8, 0 = after the GBA zeroes 0x100 */
++	P_TICK_DIV,         /* NMP: cycles per DSP tick at 0x010F */
++	P_TRACE_RAW,        /* 1 = log every window access individually */
++	P_FIRST_DELAY,      /* cycles before the first delivery of a freshly posted record */
++	P_NPARAM
++};
++
++uint32_t retro_pyan_param[P_NPARAM] = {
++	37, 0, 4000, 1123584, 0, 140448, 0, 2000,
++};
++
++static pyan_cb_t _cb;
++static FILE* _trace;
++static struct GBA* _gba;
++
++#define VC_SIZE 0x01000000u
++#define DSP_WORDS 0x40000u
++static uint8_t* _vc;      /* Play-Yan VC memory (bytes) */
++#define LOAD_32LE_X(A) ((uint32_t) _vc[(A)] | (uint32_t) _vc[(A) + 1] << 8 | (uint32_t) _vc[(A) + 2] << 16 | (uint32_t) _vc[(A) + 3] << 24)
++static uint16_t* _dsp;    /* NMP DSP memory (words, host order) */
++
++/* statistics */
++uint64_t retro_pyan_stats[32];
++enum { S_IRQ = 0, S_REC, S_ACK, S_CLEAR, S_RETRY, S_WIN_R, S_WIN_W, S_FIFO_R, S_FIFO_W, S_STAT_POLL, S_RSTAT_POLL, S_DOORBELL, S_ANOM, S_W32 };
++
++/* ---------------------------------------------------------------- LLE: the real VC01 firmware
++ * When an LLE backend is attached (retro_pyan_set_lle, used by tools/playyan/emu/lle_model.py), the VC memory
++ * above is the VC01 emulator's RAM, CTRL bit 3 / bit 2 and mode-0x70 writes to VC 0x1xxxxxxx go to
++ * the emulated chip, the chip's host-interrupt line raises the Game Pak IRQ, and the HLE record
++ * queue is not used.  The chip runs in step with the GBA: every retro_pyan_lle_period GBA cycles
++ * the backend's run() is called with that many GBA cycles. */
++typedef struct {
++	void* ctx;
++	void (*run)(void* ctx, uint32_t gbaCycles);
++	void (*reset)(void* ctx, int asserted);
++	void (*doorbell)(void* ctx);
++	void (*mmioWrite)(void* ctx, uint32_t a, uint32_t v);
++	uint32_t (*mmioRead)(void* ctx, uint32_t a);
++} PYanLLE;
++static PYanLLE _lle;
++static bool _lleOn;
++static struct mTimingEvent _lleEv;
++uint32_t retro_pyan_lle_period = 35112;   /* GBA cycles per VC01 slice (1/8 frame) */
++/* WIN_R1 (+0x500, the pixel window) delivers the VC01's RGB565 as GBA BGR555:
++ * bgr = p>>11 | ((p>>6)&31)<<5 | (p&31)<<10.  The real firmware's converter (py_fw0 0x284a0) emits
++ * RGB565 and the GBA neither converts nor swaps (its Garage hash 0x0C019410 sums the raw window
++ * halfwords, and full-screen frames are DMAed straight into mode-3 VRAM), yet the hash table only
++ * matches the swapped words: the cartridge's bus bridge converts on this window
++ * (docs/playyan/protocol.md 8.2).  LLE only: the HLE model writes BGR555 itself. */
++uint32_t retro_pyan_win1_bgr555 = 1;
++uint64_t retro_pyan_lle_irqs;
++/* NMP LLE (tools/playyan/emu/nmp_lle_model.py): the real C54x firmware.  _dsp is the DSP's on-chip RAM (HPI
++ * address space), the HPIC writes go to the DSP model, GPIO bit 3 resets it, its HINT raises the
++ * Game Pak IRQ through retro_pyan_lle_host_irq.  run/reset come from the PYanLLE struct above. */
++static void (*_nmpHpic)(void* ctx, uint32_t v);
++void retro_pyan_set_nmp_hpic(void (*fn)(void* ctx, uint32_t v)) {
++	_nmpHpic = fn;
++}
++
++/* ---------------------------------------------------------------- record queue */
++
++#define QLEN 256
++static uint32_t _q[QLEN][8];
++static uint32_t _qdelay[QLEN];
++static int _qhead, _qtail;
++static bool _inflight, _acked;
++static struct mTimingEvent _deliverEv, _retryEv;
++static bool _deliverScheduled;
++
++/* ---------------------------------------------------------------- Play-Yan registers */
++
++static struct {
++	uint16_t ctrl;
++	uint8_t mode;
++	uint32_t addrReg;
++	int addrPhase;
++	uint32_t ptr;
++	uint16_t dataLo;
++	int dataPhase;
++	int readyCountdown;
++	int rstatCountdown;
++	uint32_t chunkBytes;     /* bytes read since last RSTAT ready, for per-chunk RSTAT */
++	uint32_t mbMax;          /* highest mailbox byte written since the last doorbell */
++	uint32_t mbWrites;
++	uint32_t lastRecAddr;    /* ptr after GO for the record read */
++	bool recRead;            /* a read of 0xFF000 started since delivery */
++	uint32_t statPolls;
++} P;
++
++/* ---------------------------------------------------------------- NMP registers */
++
++static struct {
++	uint8_t control;
++	uint32_t hpia;
++	uint8_t addrMsb;
++	uint8_t dinMsb;
++	uint16_t doutLatch;
++	uint16_t gpioData, gpioDir;
++} N;
++
++/* ---------------------------------------------------------------- trace */
++
++static struct {
++	bool active;
++	char kind;           /* 'R' or 'W' */
++	uint32_t win;        /* window base offset */
++	uint32_t vcStart;
++	uint32_t count;      /* halfwords */
++	uint32_t pc;
++	uint32_t frame;
++	uint64_t cyc;
++	uint32_t anomalies;
++	uint32_t nextOff;
++	uint32_t firstOff;
++	uint32_t sum;
++} B;
++
++static struct {
++	bool valid;
++	uint32_t pc;
++	char op[8];
++	uint32_t addr;
++	uint32_t value;
++	const char* name;
++	uint32_t count;
++	uint32_t frame;
++	uint64_t cyc;
++} L;
++
++static uint32_t _frame(void) {
++	return _gba ? _gba->video.frameCounter : 0;
++}
++
++static uint64_t _cycles(void) {
++	return _gba ? mTimingGlobalTime(&_gba->timing) : 0;
++}
++
++static uint32_t _pc(void) {
++	if (!_gba) {
++		return 0;
++	}
++	if (_gba->performingDMA) {
++		return 0xD0000000u | (_gba->performingDMA >> 1);
++	}
++	struct ARMCore* cpu = _gba->cpu;
++	return cpu->gprs[ARM_PC] - (cpu->executionMode == MODE_THUMB ? WORD_SIZE_THUMB * 2 : WORD_SIZE_ARM * 2);
++}
++
++static void _pcstr(char* buf, uint32_t pc) {
++	if ((pc & 0xF0000000u) == 0xD0000000u) {
++		sprintf(buf, "DMA%u    ", pc & 3);
++	} else {
++		sprintf(buf, "%08X", pc);
++	}
++}
++
++static void _flushLine(void) {
++	if (!_trace || !L.valid) {
++		return;
++	}
++	char pcs[16];
++	_pcstr(pcs, L.pc);
++	fprintf(_trace, "%6u %11llu %s %-3s %08X %08X %s", L.frame, (unsigned long long) L.cyc, pcs, L.op, L.addr, L.value, L.name ? L.name : "");
++	if (L.count > 1) {
++		fprintf(_trace, " x%u", L.count);
++	}
++	fputc('\n', _trace);
++	L.valid = false;
++}
++
++static void _flushBurst(void) {
++	if (!_trace || !B.active) {
++		B.active = false;
++		return;
++	}
++	char pcs[16];
++	_pcstr(pcs, B.pc);
++	fprintf(_trace, "%6u %11llu %s %cWIN +%03X..+%03X n=%u hw VC %08X..%08X sum=%08X%s\n", B.frame, (unsigned long long) B.cyc, pcs, B.kind,
++	        B.win + B.firstOff, B.win + ((B.nextOff - 2) & 0x1FF), B.count, B.vcStart, B.vcStart + B.count * 2, B.sum,
++	        B.anomalies ? " OFFSET-DISCONTINUITY" : "");
++	B.active = false;
++}
++
++static void _logAccess(const char* op, uint32_t addr, uint32_t value, const char* name) {
++	if (!_trace) {
++		return;
++	}
++	_flushBurst();
++	uint32_t pc = _pc();
++	if (L.valid && L.pc == pc && L.addr == addr && L.value == value && !strcmp(L.op, op) && L.name == name) {
++		++L.count;
++		return;
++	}
++	_flushLine();
++	L.valid = true;
++	L.pc = pc;
++	strncpy(L.op, op, sizeof(L.op) - 1);
++	L.addr = addr;
++	L.value = value;
++	L.name = name;
++	L.count = 1;
++	L.frame = _frame();
++	L.cyc = _cycles();
++}
++
++static void _logWindow(char kind, uint32_t win, uint32_t off, uint32_t vc, uint16_t value) {
++	if (!_trace) {
++		return;
++	}
++	if (retro_pyan_param[P_TRACE_RAW]) {
++		char op[4] = { kind, 'w', 0, 0 };
++		_logAccess(op, win + off, value, "WIN");
++		return;
++	}
++	uint32_t pc = _pc();
++	if (B.active && B.kind == kind && B.win == win && B.pc == pc && vc == B.vcStart + B.count * 2) {
++		if (off != B.nextOff) {
++			++B.anomalies;
++		}
++		++B.count;
++		B.nextOff = (off + 2) & 0x1FF;
++		B.sum = (B.sum + value) * 3;
++		return;
++	}
++	_flushLine();
++	_flushBurst();
++	B.active = true;
++	B.kind = kind;
++	B.win = win;
++	B.vcStart = vc;
++	B.count = 1;
++	B.pc = pc;
++	B.frame = _frame();
++	B.cyc = _cycles();
++	B.anomalies = 0;
++	B.firstOff = off;
++	B.nextOff = (off + 2) & 0x1FF;
++	B.sum = value;
++}
++
++void retro_pyan_note(const char* text) {
++	if (!_trace) {
++		return;
++	}
++	_flushLine();
++	_flushBurst();
++	fprintf(_trace, "%6u %11llu ---- %s\n", _frame(), (unsigned long long) _cycles(), text);
++}
++
++static void _anomaly(const char* fmt, ...) {
++	char buf[256];
++	va_list ap;
++	va_start(ap, fmt);
++	vsnprintf(buf, sizeof(buf), fmt, ap);
++	va_end(ap);
++	++retro_pyan_stats[S_ANOM];
++	char pcs[16];
++	_pcstr(pcs, _pc());
++	char line[300];
++	snprintf(line, sizeof(line), "ANOMALY pc=%s %s", pcs, buf);
++	retro_pyan_note(line);
++	if (_cb) {
++		_cb(EV_ANOMALY, _pc(), 0, 0);
++	}
++}
++
++/* ---------------------------------------------------------------- exported API */
++
++void retro_pyan_set_callback(pyan_cb_t cb) {
++	_cb = cb;
++}
++
++int retro_pyan_family(void) {
++	return GBAPYanFamily;
++}
++
++void* retro_pyan_mem(void) {
++	return GBAPYanFamily == PYAN_NMP ? (void*) _dsp : (void*) _vc;
++}
++
++uint32_t retro_pyan_memsize(void) {
++	return GBAPYanFamily == PYAN_NMP ? DSP_WORDS * 2 : VC_SIZE;
++}
++
++int retro_pyan_trace_open(const char* path) {
++	if (_trace) {
++		_flushLine();
++		_flushBurst();
++		fclose(_trace);
++		_trace = NULL;
++	}
++	if (path && *path) {
++		_trace = fopen(path, "w");
++		if (_trace) {
++			setvbuf(_trace, NULL, _IOFBF, 1 << 20);
++		}
++	}
++	return _trace != NULL;
++}
++
++void retro_pyan_trace_flush(void) {
++	if (_trace) {
++		_flushLine();
++		_flushBurst();
++		fflush(_trace);
++	}
++}
++
++uint64_t retro_pyan_cycles(void) {
++	return _cycles();
++}
++
++static void _scheduleDeliver(uint32_t delay) {
++	if (!_gba || _deliverScheduled || _inflight || _qhead == _qtail) {
++		return;
++	}
++	_deliverScheduled = true;
++	mTimingSchedule(&_gba->timing, &_deliverEv, delay);
++}
++
++int retro_pyan_post(const uint32_t* rec, uint32_t delay) {
++	int next = (_qtail + 1) % QLEN;
++	if (next == _qhead) {
++		return -1;
++	}
++	memcpy(_q[_qtail], rec, sizeof(_q[0]));
++	_qdelay[_qtail] = delay;
++	_qtail = next;
++	_scheduleDeliver(delay ? delay : retro_pyan_param[P_FIRST_DELAY]);
++	return 0;
++}
++
++int retro_pyan_queued(void) {
++	return ((_qtail - _qhead + QLEN) % QLEN) + (_inflight ? 1 : 0);
++}
++
++int retro_pyan_inflight(void) {
++	return _inflight;
++}
++
++void retro_pyan_flush_queue(void) {
++	_qhead = _qtail = 0;
++}
++
++/* force-clear the in-flight flag (Python can do this when a firmware is reset) */
++void retro_pyan_abort_inflight(void) {
++	_inflight = false;
++	_acked = false;
++	if (_gba) {
++		mTimingDeschedule(&_gba->timing, &_retryEv);
++	}
++}
++
++static void _lleTick(struct mTiming* timing, void* context, uint32_t cyclesLate) {
++	UNUSED(timing);
++	struct GBA* gba = context;
++	if (_lleOn && _lle.run) {
++		_lle.run(_lle.ctx, retro_pyan_lle_period);
++	}
++	if (_lleOn) {
++		/* next slice relative to when this one was due, not when it fired: rescheduling a full
++		 * period after a late event lost ~0.25% of GBA time per slice at 1024-cycle slices (the
++		 * chip's clock fell behind the GBA's: 1.1 s over a 145 s song) */
++		uint32_t next = retro_pyan_lle_period > cyclesLate + 1 ? retro_pyan_lle_period - cyclesLate : 1;
++		mTimingSchedule(&gba->timing, &_lleEv, next);
++	}
++}
++
++void retro_pyan_set_lle(const PYanLLE* l) {
++	if (_gba) {
++		mTimingDeschedule(&_gba->timing, &_lleEv);
++	}
++	if (l) {
++		_lle = *l;
++		_lleOn = true;
++		if (_gba) {
++			mTimingSchedule(&_gba->timing, &_lleEv, retro_pyan_lle_period);
++		}
++	} else {
++		memset(&_lle, 0, sizeof(_lle));
++		_lleOn = false;
++	}
++}
++
++/* called by the LLE backend when the chip raises its host interrupt (GPIO 30 rising) */
++void retro_pyan_lle_host_irq(void* ctx, int level) {
++	UNUSED(ctx);
++	if (!level || !_gba) {
++		return;
++	}
++	++retro_pyan_lle_irqs;
++	++retro_pyan_stats[S_IRQ];
++	++retro_pyan_stats[S_REC];
++	if (GBAPYanFamily == PYAN_NMP) {
++		if (_trace) {
++			char note[200];
++			snprintf(note, sizeof(note), "LLE HINT rec %04X %04X | A=%04X%04X B=%04X%04X C=%04X%04X", _dsp[0x100], _dsp[0x101],
++			         _dsp[0x103], _dsp[0x102], _dsp[0x105], _dsp[0x104], _dsp[0x107], _dsp[0x106]);
++			retro_pyan_note(note);
++		}
++		GBARaiseIRQ(_gba, GBA_IRQ_GAMEPAK, 0);
++		if (_cb) {
++			_cb(EV_LLE_IRQ, (uint32_t) _dsp[0x100] | (uint32_t) _dsp[0x101] << 16, (uint32_t) _dsp[0x102] | (uint32_t) _dsp[0x103] << 16,
++			    (uint32_t) _dsp[0x104] | (uint32_t) _dsp[0x105] << 16);
++		}
++		return;
++	}
++	if (_trace) {
++		char note[200];
++		snprintf(note, sizeof(note), "LLE IRQ rec %08X %08X %08X %08X %08X %08X %08X %08X",
++		         LOAD_32LE_X(0xFF000), LOAD_32LE_X(0xFF004), LOAD_32LE_X(0xFF008), LOAD_32LE_X(0xFF00C),
++		         LOAD_32LE_X(0xFF010), LOAD_32LE_X(0xFF014), LOAD_32LE_X(0xFF018), LOAD_32LE_X(0xFF01C));
++		retro_pyan_note(note);
++	}
++	GBARaiseIRQ(_gba, GBA_IRQ_GAMEPAK, 0);
++	if (_cb) {
++		_cb(EV_LLE_IRQ, LOAD_32LE_X(0xFF000), LOAD_32LE_X(0xFF004), LOAD_32LE_X(0xFF008));
++	}
++}
++
++void retro_pyan_raise_irq(void) {
++	if (_gba) {
++		++retro_pyan_stats[S_IRQ];
++		GBARaiseIRQ(_gba, GBA_IRQ_GAMEPAK, 0);
++	}
++}
++
++uint32_t retro_pyan_get_ptr(void) {
++	return GBAPYanFamily == PYAN_NMP ? N.hpia : P.ptr;
++}
++
++uint32_t retro_pyan_get_ctrl(void) {
++	return GBAPYanFamily == PYAN_NMP ? N.control : P.ctrl;
++}
++
++/* ---------------------------------------------------------------- delivery */
++
++static void _deliver(struct mTiming* timing, void* context, uint32_t cyclesLate) {
++	UNUSED(timing);
++	struct GBA* gba = context;
++	_deliverScheduled = false;
++	if (_inflight || _qhead == _qtail) {
++		return;
++	}
++	uint32_t* rec = _q[_qhead];
++	_qhead = (_qhead + 1) % QLEN;
++	char note[200];
++	if (GBAPYanFamily == PYAN_NMP) {
++		int i;
++		for (i = 0; i < 8; ++i) {
++			_dsp[0x100 + i] = rec[i];
++		}
++		snprintf(note, sizeof(note), "DELIVER NMP rec %04X %04X | A=%04X%04X B=%04X%04X C=%04X%04X", rec[0] & 0xFFFF, rec[1] & 0xFFFF,
++		         rec[3] & 0xFFFF, rec[2] & 0xFFFF, rec[5] & 0xFFFF, rec[4] & 0xFFFF, rec[7] & 0xFFFF, rec[6] & 0xFFFF);
++	} else {
++		int i;
++		for (i = 0; i < 8; ++i) {
++			STORE_32LE(rec[i], 0xFF000 + i * 4, _vc);
++		}
++		P.recRead = false;
++		snprintf(note, sizeof(note), "DELIVER rec %08X %08X %08X %08X %08X %08X %08X %08X", rec[0], rec[1], rec[2], rec[3], rec[4], rec[5], rec[6], rec[7]);
++	}
++	retro_pyan_note(note);
++	_inflight = true;
++	_acked = false;
++	++retro_pyan_stats[S_REC];
++	++retro_pyan_stats[S_IRQ];
++	GBARaiseIRQ(gba, GBA_IRQ_GAMEPAK, cyclesLate);
++	if (retro_pyan_param[P_IRQ_RETRY]) {
++		mTimingDeschedule(&gba->timing, &_retryEv);
++		mTimingSchedule(&gba->timing, &_retryEv, retro_pyan_param[P_IRQ_RETRY]);
++	}
++	if (_cb) {
++		_cb(EV_DELIVERED, rec[0], 0, 0);
++	}
++}
++
++static void _retry(struct mTiming* timing, void* context, uint32_t cyclesLate) {
++	UNUSED(timing);
++	struct GBA* gba = context;
++	if (!_inflight || _acked) {
++		return;
++	}
++	++retro_pyan_stats[S_RETRY];
++	++retro_pyan_stats[S_IRQ];
++	retro_pyan_note("IRQ RETRY (record not acknowledged)");
++	GBARaiseIRQ(gba, GBA_IRQ_GAMEPAK, cyclesLate);
++	mTimingSchedule(&gba->timing, &_retryEv, retro_pyan_param[P_IRQ_RETRY]);
++	if (_cb) {
++		_cb(EV_IRQ_RETRY, 0, 0, 0);
++	}
++}
++
++static void _recordDone(const char* why) {
++	if (!_inflight) {
++		return;
++	}
++	_inflight = false;
++	_acked = false;
++	++retro_pyan_stats[S_CLEAR];
++	mTimingDeschedule(&_gba->timing, &_retryEv);
++	char note[64];
++	snprintf(note, sizeof(note), "RECORD DONE (%s)", why);
++	retro_pyan_note(note);
++	if (_cb) {
++		_cb(EV_CLEARED, 0, 0, 0);
++	}
++	_scheduleDeliver(retro_pyan_param[P_REC_GAP]);
++}
++
++/* ---------------------------------------------------------------- detect / reset */
++
++bool GBAPYanDetect(struct GBA* gba) {
++	const char* dis = getenv("PYAN_DISABLE");
++	if (dis && *dis == '1') {
++		return false;
++	}
++	const uint8_t* rom = (const uint8_t*) gba->memory.rom;
++	if (!rom || gba->memory.romSize < 0x100) {
++		return false;
++	}
++	int fam = PYAN_NONE;
++	if (!memcmp(rom + 0xAC, "ZMA", 3)) {
++		fam = PYAN_ORIG;
++	} else if (!memcmp(rom + 0xAC, "ZMB", 3)) {
++		fam = PYAN_MICRO;
++	} else if (!memcmp(rom + 0xAC, "ZMD", 3)) {
++		fam = PYAN_NMP;
++	}
++	if (!fam) {
++		return false;
++	}
++	GBAPYanFamily = fam;
++	_gba = gba;
++	if (!_vc) {
++		_vc = calloc(1, VC_SIZE);
++	}
++	if (!_dsp) {
++		_dsp = calloc(DSP_WORDS, 2);
++	}
++	_deliverEv.context = gba;
++	_deliverEv.callback = _deliver;
++	_deliverEv.name = "Play-Yan record";
++	_deliverEv.priority = 0x73;
++	_retryEv.context = gba;
++	_retryEv.callback = _retry;
++	_retryEv.name = "Play-Yan IRQ retry";
++	_retryEv.priority = 0x74;
++	_lleEv.context = gba;
++	_lleEv.callback = _lleTick;
++	_lleEv.name = "Play-Yan VC01 LLE";
++	_lleEv.priority = 0x75;
++	gba->isPristine = false;
++	const char* tr = getenv("PYAN_TRACE");
++	if (tr && !_trace) {
++		retro_pyan_trace_open(tr);
++	}
++	GBAPYanReset(gba);
++	return true;
++}
++
++void GBAPYanReset(struct GBA* gba) {
++	_gba = gba;
++	memset(&P, 0, sizeof(P));
++	memset(&N, 0, sizeof(N));
++	P.ctrl = 0x0;
++	_qhead = _qtail = 0;
++	_inflight = _acked = false;
++	_deliverScheduled = false;
++	mTimingDeschedule(&gba->timing, &_deliverEv);
++	mTimingDeschedule(&gba->timing, &_retryEv);
++	mTimingDeschedule(&gba->timing, &_lleEv);
++	if (_lleOn) {
++		mTimingSchedule(&gba->timing, &_lleEv, retro_pyan_lle_period);
++	}
++}
++
++/* ---------------------------------------------------------------- Play-Yan bus */
++
++static inline uint16_t _vcRead16(uint32_t a) {
++	if (a + 1 >= VC_SIZE) {
++		return 0;
++	}
++	return _vc[a] | (_vc[a + 1] << 8);
++}
++
++static inline void _vcWrite16(uint32_t a, uint16_t v) {
++	if (a + 1 >= VC_SIZE) {
++		return;
++	}
++	_vc[a] = v;
++	_vc[a + 1] = v >> 8;
++	if (a >= 0xFF020 && a < 0xFF240) {
++		if (a + 2 - 0xFF020 > P.mbMax) {
++			P.mbMax = a + 2 - 0xFF020;
++		}
++		++P.mbWrites;
++	}
++}
++
++static const char* _regName(uint32_t r) {
++	switch (r) {
++	case 0x00: return "DATA";
++	case 0x02: return "GO";
++	case 0x04: return "ADDR";
++	case 0x06: return "MODE/STAT";
++	case 0x10: return "CTRL";
++	case 0x12: return "RSTAT";
++	case 0x22: return "BOOT";
++	default: return "?";
++	}
++}
++
++static uint16_t _pyRead16(uint32_t address) {
++	uint32_t r = address & 0xFFFFFF;
++	uint16_t v = 0;
++	if (r >= 0x300 && r < 0x700) {
++		uint32_t win = r < 0x500 ? 0x300 : 0x500;
++		if (P.mode != 0x78) {
++			_anomaly("window read +%03X in mode %02X", r, P.mode);
++		}
++		if (!(P.ctrl & 1) && retro_pyan_param[P_RSTAT_POLLS]) {
++			_anomaly("window read +%03X without CTRL bit 0", r);
++		}
++		v = _vcRead16(P.ptr);
++		if (win == 0x500 && _lleOn && retro_pyan_win1_bgr555) {
++			v = (v >> 11) | ((v >> 6) & 31) << 5 | (v & 31) << 10;
++		}
++		_logWindow('R', win, r - win, P.ptr, v);
++		if (P.ptr == 0xFF000) {
++			P.recRead = true;
++		}
++		P.ptr += 2;
++		P.chunkBytes += 2;
++		if (P.chunkBytes >= 0x200) {
++			P.chunkBytes = 0;
++			P.rstatCountdown = retro_pyan_param[P_RSTAT_POLLS];
++		}
++		++retro_pyan_stats[S_WIN_R];
++		return v;
++	}
++	switch (r) {
++	case 0x00:
++		if (P.mode == 0x28) {
++			v = _vcRead16(P.ptr);
++			_logWindow('F', 0, 0, P.ptr, v);
++			P.ptr += 2;
++			++retro_pyan_stats[S_FIFO_R];
++			return v;
++		}
++		_anomaly("DATA read in mode %02X", P.mode);
++		break;
++	case 0x06:
++		/* STAT: bit 7 = ready */
++		++retro_pyan_stats[S_STAT_POLL];
++		++P.statPolls;
++		if (!(P.ctrl & 8)) {
++			v = 0;
++		} else if (P.readyCountdown > 0) {
++			--P.readyCountdown;
++			v = 0;
++		} else {
++			v = 0x80;
++		}
++		break;
++	case 0x10:
++		/* CTRL reads back (the title scene does a read-modify-write at 0x0C01036E) */
++		v = P.ctrl;
++		break;
++	case 0x12:
++		++retro_pyan_stats[S_RSTAT_POLL];
++		if (P.rstatCountdown > 0) {
++			--P.rstatCountdown;
++			v = 0;
++		} else {
++			v = (P.ctrl & 1) ? 0x10 : 0;
++		}
++		break;
++	default:
++		_anomaly("read of unknown register +%06X", r);
++		break;
++	}
++	_logAccess("R16", address, v, _regName(r));
++	return v;
++}
++
++static void _pyCtrl(uint16_t v) {
++	uint16_t old = P.ctrl;
++	P.ctrl = v;
++	_logAccess("W16", 0x0B000010, v, "CTRL");
++	uint16_t rise = v & ~old;
++	uint16_t fall = old & ~v;
++	if (_lleOn && (fall & 8) && _lle.reset) {
++		_lle.reset(_lle.ctx, 1);
++	}
++	if (_lleOn && (rise & 8) && _lle.reset) {
++		_lle.reset(_lle.ctx, 0);
++	}
++	if (fall & 8) {
++		retro_pyan_note("RESET asserted (CTRL bit 3 low)");
++		_qhead = _qtail = 0;
++		_inflight = _acked = false;
++		mTimingDeschedule(&_gba->timing, &_deliverEv);
++		mTimingDeschedule(&_gba->timing, &_retryEv);
++		_deliverScheduled = false;
++		if (_cb) {
++			_cb(EV_RESET_ASSERT, 0, 0, 0);
++		}
++	}
++	if (rise & 8) {
++		P.readyCountdown = retro_pyan_param[P_READY_POLLS];
++		P.statPolls = 0;
++		retro_pyan_note("RESET released (CTRL bit 3 high)");
++		if (_cb) {
++			_cb(EV_RESET_RELEASE, 0, 0, 0);
++		}
++	}
++	if (rise & 1) {
++		P.rstatCountdown = retro_pyan_param[P_RSTAT_POLLS];
++		P.chunkBytes = 0;
++	}
++	if (rise & 2) {
++		/* bit 1 pulses precede every re-addressed read (IRQ handler and block-read restart);
++		 * it is not treated as the record acknowledge */
++		++retro_pyan_stats[S_ACK];
++		if (_cb) {
++			_cb(EV_ACK, _inflight, 0, 0);
++		}
++	}
++	if (rise & 4) {
++		++retro_pyan_stats[S_DOORBELL];
++		char note[96];
++		snprintf(note, sizeof(note), "DOORBELL mailbox bytes=%u writes=%u", P.mbMax, P.mbWrites);
++		retro_pyan_note(note);
++		uint32_t len = P.mbMax, n = P.mbWrites;
++		P.mbMax = 0;
++		P.mbWrites = 0;
++		if (_cb) {
++			_cb(EV_DOORBELL, len, n, 0);
++		}
++		/* after the observer has read the mailbox: the chip now services the doorbell at once
++		 * (vc01hw.c hw_lle_doorbell) and the Micro's ISR clears the command word */
++		if (_lleOn && _lle.doorbell) {
++			_lle.doorbell(_lle.ctx);
++		}
++	}
++	if (_cb && (rise | fall) & 0x10) {
++		_cb(EV_CTRL, old, v, 0);
++	}
++}
++
++static void _pyWrite16(uint32_t address, uint16_t v) {
++	uint32_t r = address & 0xFFFFFF;
++	if (r >= 0x100 && r < 0x300) {
++		if (P.mode != 0x68) {
++			_anomaly("window write +%03X in mode %02X", r, P.mode);
++		}
++		_logWindow('W', 0x100, r - 0x100, P.ptr, v);
++		_vcWrite16(P.ptr, v);
++		P.ptr += 2;
++		++retro_pyan_stats[S_WIN_W];
++		return;
++	}
++	switch (r) {
++	case 0x00:
++		if (P.mode == 0x70) {
++			_logAccess("W16", address, v, P.dataPhase ? "DATA(hi)" : "DATA(lo)");
++			if (!P.dataPhase) {
++				P.dataLo = v;
++				P.dataPhase = 1;
++			} else {
++				uint32_t word = P.dataLo | ((uint32_t) v << 16);
++				uint32_t a = P.ptr;
++				P.dataPhase = 0;
++				++retro_pyan_stats[S_W32];
++				char note[96];
++				snprintf(note, sizeof(note), "W32 VC[%08X] = %08X", a, word);
++				retro_pyan_note(note);
++				if (a + 3 < VC_SIZE) {
++					STORE_32LE(word, a, _vc);
++				}
++				P.ptr += 4;
++				if (_lleOn) {
++					if (a >= 0x10000000u && _lle.mmioWrite) {
++						_lle.mmioWrite(_lle.ctx, a, word);
++					}
++					if (_cb) {
++						_cb(EV_W32, a, word, 0);
++					}
++					return;
++				}
++				if (_cb) {
++					_cb(EV_W32, a, word, 0);
++				}
++				if (a == 0xFF000 && word == 0 && _inflight && P.recRead) {
++					_recordDone("mailbox word cleared");
++				} else if (_inflight && P.recRead) {
++					_anomaly("post-record W32 to %08X = %08X (expected 0 to 000FF000)", a, word);
++				}
++			}
++			return;
++		}
++		if (P.mode == 0x28) {
++			_logWindow('f', 0, 0, P.ptr, v);
++			_vcWrite16(P.ptr, v);
++			P.ptr += 2;
++			++retro_pyan_stats[S_FIFO_W];
++			return;
++		}
++		_anomaly("DATA write %04X in mode %02X", v, P.mode);
++		_logAccess("W16", address, v, "DATA");
++		return;
++	case 0x02:
++		_logAccess("W16", address, v, "GO");
++		if (P.addrPhase == 1) {
++			_anomaly("GO after only the low ADDR half");
++		}
++		P.ptr = P.addrReg;
++		P.dataPhase = 0;
++		P.addrPhase = 0;
++		P.chunkBytes = 0;
++		if (v) {
++			_anomaly("GO written with %04X", v);
++		}
++		return;
++	case 0x04:
++		_logAccess("W16", address, v, P.addrPhase ? "ADDR(hi)" : "ADDR(lo)");
++		if (P.addrPhase == 0) {
++			P.addrReg = (P.addrReg & 0xFFFF0000u) | v;
++			P.addrPhase = 1;
++		} else if (P.addrPhase == 1) {
++			P.addrReg = (P.addrReg & 0xFFFFu) | ((uint32_t) v << 16);
++			P.addrPhase = 2;
++		} else {
++			_anomaly("third ADDR write");
++		}
++		return;
++	case 0x06:
++		_logAccess("W16", address, v, "MODE");
++		P.mode = v;
++		P.addrPhase = 0;
++		return;
++	case 0x10:
++		_pyCtrl(v);
++		return;
++	case 0x22:
++		_logAccess("W16", address, v, "BOOT");
++		if (_cb) {
++			_cb(EV_BOOTREG, v, 0, 0);
++		}
++		return;
++	default:
++		_anomaly("write %04X to unknown register +%06X", v, r);
++		_logAccess("W16", address, v, "?");
++		return;
++	}
++}
++
++/* ---------------------------------------------------------------- NMP bus (HPI-8) */
++
++static uint16_t _dspRead(uint32_t a) {
++	a &= DSP_WORDS - 1;
++	if (a == 0x10F && !_lleOn) {
++		return (uint16_t) (_cycles() / (retro_pyan_param[P_TICK_DIV] ? retro_pyan_param[P_TICK_DIV] : 1));
++	}
++	return _dsp[a];
++}
++
++static uint8_t _nmpRead8(uint32_t address) {
++	uint32_t r = address & 0xFFFF;
++	uint8_t v = 0xFF;
++	switch (r) {
++	case 0x6000:
++		N.doutLatch = _dspRead(N.hpia);
++		v = N.doutLatch >> 8;
++		break;
++	case 0x6001:
++		v = N.doutLatch;
++		_logWindow('R', 0x6000, (N.hpia * 2) & 0x1FF, N.hpia * 2, N.doutLatch);
++		N.hpia = (N.hpia + 1) & 0xFFFFFF;
++		return v;
++	default:
++		_anomaly("NMP read of %08X", address);
++		break;
++	}
++	_logAccess("R8", address, v, "HPI");
++	return v;
++}
++
++static void _nmpWrite8(uint32_t address, uint8_t v) {
++	uint32_t r = address & 0xFFFF;
++	switch (r) {
++	case 0x0000:
++	case 0x0001: {
++		uint8_t old = N.control;
++		N.control = v;
++		_logAccess("W8", address, v, "HPIC");
++		if (r == 0 && _lleOn && _nmpHpic) {
++			_nmpHpic(_lle.ctx, v);
++		}
++		if (r == 0 && _cb) {
++			_cb(EV_NMP_CTRL, v, old, 0);
++		}
++		if (r == 0 && (v & 4)) {
++			++retro_pyan_stats[S_DOORBELL];
++			retro_pyan_note("NMP DOORBELL (HPIC 0x04)");
++			if (_cb) {
++				_cb(EV_NMP_DOORBELL, 0, 0, 0);
++			}
++		}
++		if (r == 0 && (v & 8)) {
++			++retro_pyan_stats[S_ACK];
++			if (_inflight) {
++				_acked = true;
++				if (retro_pyan_param[P_NMP_ON_ACK]) {
++					_recordDone("HPIC 0x08");
++				}
++			}
++		}
++		return;
++	}
++	case 0x8000:
++		N.addrMsb = v;
++		_logAccess("W8", address, v, "HPIA.msb");
++		return;
++	case 0x8001: {
++		uint16_t half = (N.addrMsb << 8) | v;
++		if (N.control & 0x10) {
++			N.hpia = (N.hpia & 0xFFFF) | ((uint32_t) half << 16);
++		} else {
++			N.hpia = (N.hpia & 0xFFFF0000u) | half;
++		}
++		_logAccess("W8", address, v, (N.control & 0x10) ? "HPIA.lsb(hi half)" : "HPIA.lsb(lo half)");
++		return;
++	}
++	case 0x4000:
++		N.dinMsb = v;
++		return;
++	case 0x4001: {
++		uint16_t w = (N.dinMsb << 8) | v;
++		N.hpia = (N.hpia + 1) & 0xFFFFFF;
++		uint32_t a = N.hpia & (DSP_WORDS - 1);
++		_logWindow('W', 0x4000, (N.hpia * 2) & 0x1FF, N.hpia * 2, w);
++		_dsp[a] = w;
++		if (a == 0x100 && w == 0 && _inflight && !retro_pyan_param[P_NMP_ON_ACK]) {
++			_recordDone("NMP 0x100 cleared");
++		}
++		return;
++	}
++	default:
++		_anomaly("NMP write %02X to %08X", v, address);
++		_logAccess("W8", address, v, "?");
++		return;
++	}
++}
++
++bool GBAPYanGPIOWrite(struct GBA* gba, uint32_t address, uint16_t value) {
++	UNUSED(gba);
++	if (GBAPYanFamily != PYAN_NMP) {
++		return false;
++	}
++	uint32_t reg = address & 0xFFFFFE;
++	_logAccess("W16", address, value, reg == 0xC4 ? "GPIO.DATA" : reg == 0xC6 ? "GPIO.DIR" : "GPIO.CTRL");
++	uint16_t oldEff = (N.gpioDir & 8) ? (N.gpioData & 8) : 8;
++	if (reg == 0xC4) {
++		N.gpioData = value;
++	} else if (reg == 0xC6) {
++		N.gpioDir = value;
++	}
++	uint16_t eff = (N.gpioDir & 8) ? (N.gpioData & 8) : 8;
++	if (_lleOn && _lle.reset && oldEff != eff) {
++		_lle.reset(_lle.ctx, eff ? 0 : 1);
++	}
++	if (oldEff && !eff) {
++		retro_pyan_note("NMP RESET asserted (GPIO bit 3 low)");
++		_qhead = _qtail = 0;
++		_inflight = _acked = false;
++		mTimingDeschedule(&_gba->timing, &_deliverEv);
++		mTimingDeschedule(&_gba->timing, &_retryEv);
++		_deliverScheduled = false;
++		if (_cb) {
++			_cb(EV_RESET_ASSERT, 0, 0, 0);
++		}
++	} else if (!oldEff && eff) {
++		retro_pyan_note("NMP RESET released");
++		if (_cb) {
++			_cb(EV_RESET_RELEASE, 0, 0, 0);
++		}
++	}
++	if (_cb) {
++		_cb(EV_NMP_GPIO, reg, value, 0);
++	}
++	return true;
++}
++
++/* ---------------------------------------------------------------- bus entry points */
++
++uint32_t GBAPYanLoad(struct GBA* gba, uint32_t address, int width) {
++	_gba = gba;
++	if (GBAPYanFamily == PYAN_NMP) {
++		uint32_t v = _nmpRead8(address);
++		if (width == 2) {
++			v |= v << 8;
++		} else if (width == 4) {
++			v |= v << 8;
++			v |= v << 16;
++		}
++		return v;
++	}
++	if (width == 1) {
++		uint16_t h = _pyRead16(address & ~1);
++		return (address & 1) ? h >> 8 : h & 0xFF;
++	}
++	if (width == 4) {
++		uint32_t lo = _pyRead16(address & ~3);
++		uint32_t hi = _pyRead16((address & ~3) + 2);
++		return lo | (hi << 16);
++	}
++	return _pyRead16(address & ~1);
++}
++
++void GBAPYanStore(struct GBA* gba, uint32_t address, uint32_t value, int width) {
++	_gba = gba;
++	if (GBAPYanFamily == PYAN_NMP) {
++		if (width != 1) {
++			/* 8-bit bus: the byte lane for the addressed byte */
++			value >>= 8 * (address & 1);
++		}
++		_nmpWrite8(address, value & 0xFF);
++		return;
++	}
++	if (width == 4) {
++		_pyWrite16(address & ~3, value & 0xFFFF);
++		_pyWrite16((address & ~3) + 2, value >> 16);
++		return;
++	}
++	if (width == 1) {
++		/* GBA 8-bit stores to the cart bus: model as a halfword write of the byte */
++		_pyWrite16(address & ~1, value & 0xFF);
++		return;
++	}
++	_pyWrite16(address & ~1, value & 0xFFFF);
++}
+--- a/src/gba/cart/unlicensed.c	1969-12-31 16:00:01.000000000 -0800
++++ b/src/gba/cart/unlicensed.c	2026-11-08 12:22:40.652672359 -0800
+@@ -4,6 +4,7 @@
+  * License, v. 2.0. If a copy of the MPL was not distributed with this
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ #include <mgba/internal/gba/cart/unlicensed.h>
++#include <mgba/internal/gba/cart/pyan.h>
+ 
+ #include <mgba/internal/arm/macros.h>
+ #include <mgba/internal/gba/gba.h>
+@@ -37,6 +38,9 @@
+ 	}
+ 
+ 	struct GBACartridge* cart = (struct GBACartridge*) gba->memory.rom;
++	if (GBAPYanDetect(gba)) {
++		return;
++	}
+ 	if (GBAVFameDetect(&gba->memory.unl.vfame, gba->memory.rom, gba->memory.romSize, gba->romCrc32)) {
+ 		gba->memory.unl.type = GBA_UNL_CART_VFAME;
+ 		return;
+@@ -65,6 +69,9 @@
+ }
+ 
+ void GBAUnlCartReset(struct GBA* gba) {
++	if (GBAPYanFamily) {
++		GBAPYanReset(gba);
++	}
+ 	if (gba->memory.unl.type == GBA_UNL_CART_MULTICART) {
+ 		gba->memory.unl.multi.bank = 0;
+ 		gba->memory.unl.multi.offset = 0;
+--- a/src/gba/gba.c	1969-12-31 16:00:01.000000000 -0800
++++ b/src/gba/gba.c	2026-11-08 12:22:36.228614893 -0800
+@@ -340,9 +340,7 @@
+ 		do {
+ 			int32_t cycles = cpu->cycles;
+ 			cpu->cycles = 0;
+-#ifdef ENABLE_DEBUGGERS
+ 			gba->timing.globalCycles += cycles < nextEvent ? nextEvent : cycles;
+-#endif
+ 			mASSERT_DEBUG_LOG(GBA, cycles >= 0, "Negative cycles passed: %i", cycles);
+ 			nextEvent = mTimingTick(&gba->timing, cycles < nextEvent ? nextEvent : cycles);
+ 		} while (gba->cpuBlocked && !gba->earlyExit);
+@@ -600,9 +598,25 @@
+ 	gba->cpu->halted = 1;
+ }
+ 
++/* Play-Yan harness: a BIOS Stop (SWI 3, or HALTCNT bit 7) that actually stops.  With
++ * retro_pyan_real_stop = 1 the CPU halts and only a keypad, Game Pak or SIO interrupt (the
++ * sources that run in stop mode) wakes it; other interrupts that mGBA keeps raising (VBlank,
++ * timers) leave it halted.  0 = stock mGBA behaviour (returns at once without a frontend
++ * sleep callback).  retro_pyan_stops / retro_pyan_stop_cycles count stops and their length. */
++int retro_pyan_real_stop = 0;
++uint32_t retro_pyan_stops;
++uint32_t retro_pyan_keywakes;
++static int _pyanStopped;
++
+ void GBAStop(struct GBA* gba) {
+ 	int validIrqs = (1 << GBA_IRQ_GAMEPAK) | (1 << GBA_IRQ_KEYPAD) | (1 << GBA_IRQ_SIO);
+ 	int sleep = gba->memory.io[GBA_REG(IE)] & validIrqs;
++	if (retro_pyan_real_stop) {
++		_pyanStopped = 1;
++		++retro_pyan_stops;
++		GBAHalt(gba);
++		return;
++	}
+ 	size_t c;
+ 	for (c = 0; c < mCoreCallbacksListSize(&gba->coreCallbacks); ++c) {
+ 		struct mCoreCallbacks* callbacks = mCoreCallbacksListGetPointer(&gba->coreCallbacks, c);
+@@ -1014,6 +1028,15 @@
+ 	uint16_t keysActive = gba->keysActive;
+ 
+ 	uint16_t keycnt = gba->memory.io[GBA_REG(KEYCNT)];
++	/* experiment (retro_pyan_real_stop = 2): a key selected in KEYCNT ends Stop even with the IRQ
++	 * enable bit 14 clear.  The Micro (0x0C01xxxx) and the NMP (0x02036C04) enter Stop with KEYCNT = 8
++	 * (START selected, no IRQ) while their DSP / VC sleeps waiting for the GBA, so on hardware either
++	 * this works or nothing can wake them.  Resumes after the SWI without taking an interrupt. */
++	if (_pyanStopped && retro_pyan_real_stop == 2 && (keysActive & keycnt & 0x3FF)) {
++		_pyanStopped = 0;
++		gba->cpu->halted = 0;
++		++retro_pyan_keywakes;
++	}
+ 	if (!(keycnt & 0x4000)) {
+ 		return;
+ 	}
+@@ -1037,6 +1060,13 @@
+ 	UNUSED(timing);
+ 	UNUSED(cyclesLate);
+ 	struct GBA* gba = user;
++	if (_pyanStopped) {
++		int wake = (1 << GBA_IRQ_GAMEPAK) | (1 << GBA_IRQ_KEYPAD) | (1 << GBA_IRQ_SIO);
++		if (!(gba->memory.io[GBA_REG(IE)] & gba->memory.io[GBA_REG(IF)] & wake)) {
++			return;   /* still stopped */
++		}
++		_pyanStopped = 0;
++	}
+ 	gba->cpu->halted = 0;
+ 	if (!(gba->memory.io[GBA_REG(IE)] & gba->memory.io[GBA_REG(IF)])) {
+ 		return;
+--- a/src/gba/memory.c	1969-12-31 16:00:01.000000000 -0800
++++ b/src/gba/memory.c	2026-11-08 12:22:40.652672359 -0800
+@@ -11,6 +11,7 @@
+ #include <mgba/internal/gba/gba.h>
+ #include <mgba/internal/gba/dma.h>
+ #include <mgba/internal/gba/io.h>
++#include <mgba/internal/gba/cart/pyan.h>
+ #include <mgba/internal/gba/serialize.h>
+ #include "gba/hle-bios.h"
+ 
+@@ -486,6 +487,14 @@
+ 	int wait = 0;
+ 	char* waitstatesRegion = memory->waitstatesNonseq32;
+ 
++	if (UNLIKELY(GBAPYanClaims(address))) {
++		value = GBAPYanLoad(gba, address, 4);
++		if (cycleCounter) {
++			*cycleCounter += memory->waitstatesNonseq32[address >> BASE_OFFSET] + 2;
++		}
++		return value;
++	}
++
+ 	switch (address >> BASE_OFFSET) {
+ 	case GBA_REGION_BIOS:
+ 		LOAD_BIOS;
+@@ -544,6 +553,14 @@
+ 	uint32_t value = 0;
+ 	int wait = 0;
+ 
++	if (UNLIKELY(GBAPYanClaims(address))) {
++		value = GBAPYanLoad(gba, address, 2);
++		if (cycleCounter) {
++			*cycleCounter += memory->waitstatesNonseq16[address >> BASE_OFFSET] + 2;
++		}
++		return value;
++	}
++
+ 	switch (address >> BASE_OFFSET) {
+ 	case GBA_REGION_BIOS:
+ 		if (address < GBA_SIZE_BIOS) {
+@@ -659,6 +676,14 @@
+ 	uint32_t value = 0;
+ 	int wait = 0;
+ 
++	if (UNLIKELY(GBAPYanClaims(address))) {
++		value = GBAPYanLoad(gba, address, 1);
++		if (cycleCounter) {
++			*cycleCounter += memory->waitstatesNonseq16[address >> BASE_OFFSET] + 2;
++		}
++		return value;
++	}
++
+ 	switch (address >> BASE_OFFSET) {
+ 	case GBA_REGION_BIOS:
+ 		if (address < GBA_SIZE_BIOS) {
+@@ -835,6 +860,14 @@
+ 	int32_t oldValue;
+ 	char* waitstatesRegion = memory->waitstatesNonseq32;
+ 
++	if (UNLIKELY(GBAPYanClaims(address))) {
++		GBAPYanStore(gba, address, (uint32_t) value, 4);
++		if (cycleCounter) {
++			*cycleCounter += memory->waitstatesNonseq32[address >> BASE_OFFSET] + 1;
++		}
++		return;
++	}
++
+ 	switch (address >> BASE_OFFSET) {
+ 	case GBA_REGION_EWRAM:
+ 		STORE_EWRAM;
+@@ -886,6 +919,14 @@
+ 	int wait = 0;
+ 	int16_t oldValue;
+ 
++	if (UNLIKELY(GBAPYanClaims(address))) {
++		GBAPYanStore(gba, address, (uint16_t) value, 2);
++		if (cycleCounter) {
++			*cycleCounter += memory->waitstatesNonseq16[address >> BASE_OFFSET] + 1;
++		}
++		return;
++	}
++
+ 	switch (address >> BASE_OFFSET) {
+ 	case GBA_REGION_EWRAM:
+ 		STORE_16(value, address & (GBA_SIZE_EWRAM - 2), memory->wram);
+@@ -934,6 +975,9 @@
+ 		}
+ 		break;
+ 	case GBA_REGION_ROM0:
++		if (IS_GPIO_REGISTER(address & 0xFFFFFE) && GBAPYanGPIOWrite(gba, address, value)) {
++			break;
++		}
+ 		if (IS_GPIO_REGISTER(address & 0xFFFFFE)) {
+ 			if (!(memory->hw.devices & HW_GPIO)) {
+ 				mLOG(GBA_HW, WARN, "Write to GPIO address %08X on cartridge without GPIO", address);
+@@ -1031,6 +1075,14 @@
+ 	int wait = 0;
+ 	uint16_t oldValue;
+ 
++	if (UNLIKELY(GBAPYanClaims(address))) {
++		GBAPYanStore(gba, address, (uint8_t) value, 1);
++		if (cycleCounter) {
++			*cycleCounter += memory->waitstatesNonseq16[address >> BASE_OFFSET] + 1;
++		}
++		return;
++	}
++
+ 	switch (address >> BASE_OFFSET) {
+ 	case GBA_REGION_EWRAM:
+ 		((int8_t*) memory->wram)[address & (GBA_SIZE_EWRAM - 1)] = value;

@@ -1,6 +1,6 @@
 """ctypes binding of the C reference (reference/playyan/mp3/libpymp3.so)."""
 import ctypes as C, os, struct
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
 HERE = os.path.dirname(os.path.abspath(__file__))
 SO = os.path.join(HERE, '../../../reference/playyan/mp3/libpymp3.so')
 EXTRACT = WORK + '/firmware/extract'

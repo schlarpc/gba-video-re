@@ -45,3 +45,8 @@ tools/*/emu/sys/
 *.state
 __pycache__/
 tools/vx/container/out/
+# Play-Yan emulators: everything they build or write goes to $PLAYYAN_WORK (default tmp/playyan);
+# these catch stray outputs if it points into the tree
+tools/playyan/**/*.so
+*.img
+*.s16

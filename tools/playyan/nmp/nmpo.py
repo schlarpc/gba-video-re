@@ -6,12 +6,12 @@ with breakpoint hooks for stage snapshots.
     o.d(addr, n)             # data words; o.d32(addr) = hi:lo pair at addr (even)
 """
 import sys, os, ctypes, shutil, hashlib
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
 TMP = os.environ.get('TMPDIR', '/tmp')
-NMP = WORK + '/emu/nmp_lle'
+NMP = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'c54x')  # the C54x core and board (tools/playyan/c54x)
 sys.path.insert(0, NMP)
 import host, nmpm
-# The shared core (emu/nmp_lle) now has the STH/ST|| saturation fix (SPRU131G 4.3.3); the local
+# The shared core (tools/playyan/c54x) now has the STH/ST|| saturation fix (SPRU131G 4.3.3); the local
 # patched copy that stood in for it has been removed.
 
 def sx(v, b):

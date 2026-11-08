@@ -3,8 +3,8 @@
 embedded) as Rust (crates/gbav-playyan/src/m4v_tables.rs) and C (reference/playyan/video/m4v_tables.h).
 Source: FFmpeg's transcription of the standard (FFMPEG_SRC = its libavcodec directory)."""
 import os, re, sys
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
-SRC = os.environ.get('FFMPEG_SRC', WORK + '/firmware/isa/ref/src')  # an FFmpeg libavcodec directory
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
+SRC = os.environ.get('FFMPEG_SRC', '')  # an FFmpeg libavcodec directory
 D = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..')
 
 def carr(fname, name):

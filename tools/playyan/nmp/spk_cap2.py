@@ -1,8 +1,8 @@
 """speaker path capture: at 0:30CA dump its 0x80-word input buffer; at 2:81B0/2:82BE the synthesis output;
 on 0x8100 the GBA blocks.  python3 spk_cap2.py FILE.mp3 SECS OUT.pkl"""
 import sys, os, shutil, hashlib, ctypes, pickle, numpy as np
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
-NMP = WORK + '/emu/nmp_lle'
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
+NMP = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'c54x')  # the C54x core and board (tools/playyan/c54x)
 sys.path.insert(0, NMP)
 import host
 def capture(path, secs, name='a.mp3'):

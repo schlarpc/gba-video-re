@@ -1,7 +1,7 @@
 """Analyse fw_mixed_cap.py captures: the 540 words each mixed granule's reorder reads past its
 copy (tmp[576..1115]), per granule, and how they differ between granules and runs."""
 import sys, struct, os
-WORK = os.environ.get('MP3WORK', os.environ.get('PLAYYAN_WORK', '') + '/mp3work')
+WORK = os.environ.get('MP3WORK', (os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')) + '/mp3work')
 REC = 4096 + 128 + 1024
 
 def granules(tag):

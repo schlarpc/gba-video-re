@@ -1,8 +1,8 @@
 """ID3 block the NMP DSP returns for AUDIO_INFO (0x0040 -> record 0x4040): python3 id3_oracle.py FILE.mp3...
 prints the record and the 0x88-word block (title +2.., artist +0x44.., u32 seconds at +0x86)"""
 import sys, os, shutil, hashlib, json
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
-NMP = WORK + '/emu/nmp_lle'
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
+NMP = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'c54x')  # the C54x core and board (tools/playyan/c54x)
 sys.path.insert(0, NMP)
 import nmpo, host
 

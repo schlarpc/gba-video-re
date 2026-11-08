@@ -4,7 +4,7 @@ and main-data bit flips, random big_values/part2_3/global_gain/table_select fiel
 import sys, random, glob, os, struct
 from fwmp3 import FwMp3, frames
 from cref import CMp3
-WORK = os.environ.get('MP3WORK', os.environ.get('PLAYYAN_WORK', '') + '/mp3work')
+WORK = os.environ.get('MP3WORK', (os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')) + '/mp3work')
 FILES = sorted(glob.glob(os.path.join(WORK, 'gen/*.mp3'))) + \
     [os.path.join(os.environ.get('PY_MEDIA', ''), 'playan_support_sample_music', 'sample_music.mp3')]
 

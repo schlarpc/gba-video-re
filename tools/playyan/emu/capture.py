@@ -30,19 +30,19 @@ $PY_CAPTURE_DIR/cap/<tag>/:
 import argparse, ctypes as C, hashlib, json, os, shutil, struct, sys, time
 import numpy as np
 
-# The emulator (VC01 core, peripheral model, patched mGBA bridge) is local and not in this repository:
-# PLAYYAN_WORK names the tree that holds it (emu/, roms/, media/); captures go to $PY_CAPTURE_DIR.
-WORK = os.environ.get('PLAYYAN_WORK', '')
-EMU = os.path.join(WORK, 'emu')
-HERE = os.environ.get('PY_CAPTURE_DIR', os.path.join(EMU, 'final'))
-sys.path.insert(0, EMU); sys.path.insert(0, os.path.join(EMU, 'lle'))
+# ROMs and playan.fup from $PY_ROMS; the patched core from build.sh; captures go to $PY_CAPTURE_DIR
+# (default $PLAYYAN_WORK/capture).
+EMU = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, EMU)
+sys.path.append(os.path.join(EMU, '..'))
+import workdir  # noqa: E402
+sys.path.append(workdir.VC01)
+HERE = os.environ.get('PY_CAPTURE_DIR') or os.path.join(workdir.WORK, 'capture')
 import run as RUN  # noqa: E402
 import lle_model, vcm, scenarios  # noqa: E402
 
 GBA_HZ = 16777216
-FUP = os.path.join(EMU, '..', 'media', 'nintendo', 'playan_firmware_playan', 'playan.fup')
-ROMS = dict(orig=os.path.join(EMU, '..', 'roms', 'Play-Yan (Japan).gba'), v111=os.path.join(EMU, '..', 'roms', 'Play-Yan (Japan).gba'),
-            micro=os.path.join(EMU, '..', 'roms', 'Play-Yan Micro (Japan).gba'))
+ROMS = dict(orig='orig', v111='orig', micro='micro')
 
 
 def bgr555(raw):
@@ -119,7 +119,7 @@ def main():
     shutil.rmtree(sd, ignore_errors=True); os.makedirs(sd)
     os.symlink(src, os.path.join(sd, name))
     if a.build == 'v111':
-        os.symlink(os.path.abspath(FUP), os.path.join(sd, 'playan.fup'))
+        os.symlink(os.path.abspath(workdir.rom('fup')), os.path.join(sd, 'playan.fup'))
     img = vcm.make_sd(sd, os.path.join(HERE, 'sd', tag + '.img'))
     dur = a.secs
     if dur is None:
@@ -134,9 +134,7 @@ def main():
         cap.record(self)
         return orig(self)
     lle_model.LLEModel.on_record = on_record
-    RUN.HERE = HERE
-    for d in ('traces', 'out', 'shots'):
-        os.makedirs(os.path.join(HERE, d), exist_ok=True)
+    RUN.OUT = HERE
     r = RUN.Runner(ROMS[a.build], tag, None, dict(sd_image=img, ips=a.ips, period=a.period, ac_scale=a.ac_scale, hp_jack=int(a.hp), memrep7=a.memrep7), sd, lle=True)
     m = r.model; L = m.L; h = m.m.h
     PCMCAP = int(48000 * 2 * (dur + 30))

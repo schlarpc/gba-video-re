@@ -1,9 +1,9 @@
-"""Build the C VC01 core (the local emulator, $PLAYYAN_WORK/emu/lle) for the MP3 oracle, with one
+"""Build the C VC01 core (tools/playyan/vc01) for the MP3 oracle, with one
 addition: a set of breakpoints (vc_brk_set) so Python hooks can stub malloc and capture state.
 Output goes to $MP3WORK (default $PLAYYAN_WORK/mp3work)."""
 import os, subprocess
-LLE = WORK + '/emu/lle'
-WORK = os.environ.get('MP3WORK', os.environ.get('PLAYYAN_WORK', '') + '/mp3work')
+LLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'vc01')  # the C VC01 core (tools/playyan/vc01)
+WORK = os.environ.get('MP3WORK', (os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')) + '/mp3work')
 
 def build():
     os.makedirs(WORK, exist_ok=True)

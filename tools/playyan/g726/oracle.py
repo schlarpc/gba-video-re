@@ -10,8 +10,8 @@ payloads of ASF (G.726-32) if given.  OUT format, one case per line:
   until a line with bits 0 resets it)."""
 import sys, random, struct
 import os
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
-ISA = WORK + '/firmware/isa'
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
+ISA = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'vc01')  # the VC01 model (tools/playyan/vc01)
 sys.path.insert(0, ISA)
 import g726_vemu as V
 import emu

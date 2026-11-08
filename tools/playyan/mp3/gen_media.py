@@ -1,6 +1,6 @@
 """Build test MP3s with LAME (dev tool): python3 gen_media.py OUTDIR"""
 import numpy as np, wave, subprocess, sys, os
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
 LAME = os.environ.get('LAME', 'lame')
 out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.environ.get('MP3WORK', WORK + '/mp3work'), 'gen')
 os.makedirs(out, exist_ok=True)

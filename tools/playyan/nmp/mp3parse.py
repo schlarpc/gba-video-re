@@ -2,8 +2,8 @@
 Huffman trees from PDMP3 (public domain, ref/PDMP3/pdmp3.c), standard tables only."""
 import re
 import os
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
-_src = open(os.environ.get('PDMP3_C', WORK + '/emu/nmp_lle/ref/PDMP3/pdmp3.c')).read()  # PDMP3 (public domain)
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
+_src = open(os.environ['PDMP3_C']).read()  # pdmp3.c of PDMP3 (public domain), which you provide
 _tab = _src[_src.index('g_huffman_table[] = {'):]
 _tab = _tab[:_tab.index('};')]
 _tab = re.sub(r'//[^\n]*', '', _tab)

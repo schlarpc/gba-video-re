@@ -4,14 +4,13 @@ DECODE_DATA_INDICATION: frames (240x160 raw from rec[1]) and audio blocks (rec[4
 plus a records.jsonl with the record words.  Does not modify the shared emulator files.
 usage: LLE_AV=OUTDIR [VIDEO_SECS=..] [LLE_MEMDUMP=n,m: whole VC memory at those frames] fw_av.py ROM SCENARIO --sd DIR --tag TAG [run.py options]"""
 import json, os, struct, sys
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
-import dis, inspect  # noqa: F401  (before firmware/isa joins sys.path: its dis.py shadows the stdlib)
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
 try:
     import numpy  # noqa: F401
 except ImportError:
     pass
-EMU = WORK + '/emu'
-sys.path.insert(0, EMU); sys.path.insert(0, os.path.join(EMU, 'lle'))
+EMU = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'emu')  # the mGBA harness (tools/playyan/emu)
+sys.path.insert(0, EMU)
 os.chdir(EMU)
 import lle_model, run
 

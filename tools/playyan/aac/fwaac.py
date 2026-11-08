@@ -1,19 +1,15 @@
 import numpy  # before cvc puts isa/ (dis.py) on sys.path
 import os
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
 """Firmware AAC oracle: the Micro / fup video image's own AAC decoder run in the C VC01 core
-($PLAYYAN_WORK/emu/lle/libvc01.so).  Same call sequence as the firmware's codec wrapper
+(tools/playyan/vc01, libvc01.so).  Same call sequence as the firmware's codec wrapper
 (0x18a42 create -> 0xd412 init(dec, workbuf), 0xd4bc(dec, 5); 0x18966 -> 0xd4d0(dec, asc);
 0x1888a -> 0xcee8(dec, frame, pcm_out, info)); malloc/free stubbed."""
 import os, sys, struct
-LLE = WORK + '/emu/lle'
+LLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'vc01')  # the C VC01 core (tools/playyan/vc01)
 sys.path.insert(0, LLE)
 import cvc
-# the shared core (emu/lle/libvc01.so), fixed 2026-11-08: 48-bit op4-7 '...11' = ldsb, vector memory
-# REP code 7 = 64 rows. AAC_PRIVATE_CORE=1 uses a private core copy (ldsb fix only, REP 128: obsolete; not in this repository).
-if os.environ.get('AAC_PRIVATE_CORE'):
-    cvc.LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'core', 'libvc01_s.so')
-cvc.build = lambda: None
+# the shared core, fixed 2026-11-08: 48-bit op4-7 '...11' = ldsb, vector memory REP code 7 = 64 rows
 
 EXTRACT = WORK + '/firmware/extract/'
 RET = 0x00FFFFF0

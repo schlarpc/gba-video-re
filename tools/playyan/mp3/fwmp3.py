@@ -3,7 +3,7 @@ Usage as a module:  d = FwMp3('py_fw1'); d.load(file_bytes); r, pcm = d.frame(of
 CLI: python3 fwmp3.py FILE.mp3 OUT.pcm [nframes]   (16-bit stereo LE, 1152 x 2 per frame)
 Image addresses are for py_fw1; other images via ADDR."""
 import ctypes as C, os, struct, sys
-WORK = os.environ.get('PLAYYAN_WORK', '')  # the local emulator tree (not in this repository)
+WORK = os.environ.get('PLAYYAN_WORK') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'tmp', 'playyan')  # tools/playyan/workdir.py
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXTRACT = WORK + '/firmware/extract'
 ADDR = {'py_fw1': dict(init=0x2405c, create=0x238a0, malloc=0x21d12, decode=0x222f2),
