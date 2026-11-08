@@ -35,6 +35,10 @@ Routines run in the emulator, all passing:
 | Park-Miller random number generator (0xCCD46) | Python | 200 |
 | FIRMWARE_LIST and FIRMWARE_DOWNLOAD workers (0xC84F8, 0xC6D0C) on the real `playan.fup` | the two images extracted independently | RAM equals both sections byte for byte at the jump to 0x200 |
 | G.726 encoders and decoders at 16, 24, 32 and 40 kbit/s, predictor, quantiser, update (video image 0x3E6-0xEBE; scalar and vector code) | Sun's g72x reference C | 6,000, bit-exact, including the whole codec state per sample |
+| MPEG-4 kernels: IDCT, dequantisation, AC prediction, motion compensation, output, bitstream unpacker | ffmpeg / ISO 14496-2, IEEE-1180 | 2,500 + 24 |
+| MP3 kernels: dct32, IMDCT, synthesis window, requantiser | fixed-point models; PCM within 1 LSB of ffmpeg | 98 |
+| AAC kernels: inverse quantisation, window, FFT, IMDCT (N = 2048 and 256), filter bank, PCM out | a fixed-point model following FAAD2 | 4,491 |
+| pixel pipeline: YUV to RGB565, crop and scale, brightness | the Garage Game thumbnail hashes | all |
 
 Flipping a decoded operation to a plausible alternative (signed vs unsigned halfword load, max vs
 min, the scaled add, abs) makes the relevant tests fail, so those operations are pinned down
@@ -63,7 +67,8 @@ targets:
 | `playan.fup` video | 182,700 | 88.20 % | 3.69 % | 8.10 % | 0.01 % |
 | `playan.fup` music | 156,714 | 53.33 % | 2.26 % | 44.40 % | 0 % |
 
-The music images are about 44 % vector code (MP3 synthesis and IMDCT), the video images 8 %.
+The music images are about 44 % vector code (MP3 synthesis and IMDCT), the video images 8 %. The
+table counts vector bytes as "length only"; the vector coverage is in the next section.
 
 ## Machine model
 
@@ -101,8 +106,8 @@ op5 (used by 16-bit 110o oooo and by the 32-bit 3-register form):
   bmask rd,n: rd &= (1<<n)-1.  btst rd,n: Z = !(rd>>n & 1).  addsK: rd += rs << k (k=1..4).
   max/min signed.  msb = index of highest set bit (-1 for 0).  cmn: flags of rd+rs.
 op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp:
-   0 btst [C LFN checksum]  1 bmask [C]  2 asr [P]  3 shl [C]  4 lsr [C]  5 mul [P]  6 add [C]
-   7 mov [C]  8-11 (hb 0x70-0x77) never occur in reachable code (cmp? by analogy) [G].  Immediate: signed 5-bit for add/mov/cmp,
+   0 btst [C LFN checksum]  1 bmask [C]  2 asr [P]  3 shl [C]  4 lsr [C]  5 mul (signed imm) [C MP3]  6 add [C]
+   7 mov [C]  8-11 (hb 0x70-0x77) never occur in reachable code (cmp? by analogy) [G].  Immediate: signed 5-bit for add/mov/cmp/mul,
    unsigned 0..31 otherwise.
 ```
 
@@ -121,7 +126,7 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
                                                          [C] loader 0xc6d10 'playan.fup', 0xc6d46 header
 010o oooo 0011 dddd   misc, selected by o:                                      (rd field = d)
     o=2  4230   nop (padding after functions)                                 [P]
-    o=3  4330   wait for interrupt (idle loop ei; 4330; di)                    [C, real firmware]
+    o=3  4330   wfi: wait for interrupt (Nucleus idle loop, SLEEP handler)       [C real firmware, LLE run]
     o=4  4430   rts  (pc = lr)                                                 [C]
     o=6  46 3d  b rd                                                           [C] (executed)
     o=7  47 3d  bl rd   (call through function pointer)                        [C]
@@ -129,9 +134,9 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
     o=12 4c3d   switch.b rd: pc = next + 2*sx8(byte table[next + rd])           [C] sprintf
     o=13 4d3d   switch.h rd: pc = next + 2*sx16(half table[next + 2*rd])         [C]
     o=16 50 3d  tst rd  (flags of rd - 0)                                       [C]
-    o=18 5230   breakpoint; a no-op without a debugger (exception stubs, fatal paths) [C, real firmware]
+    o=18 5230   bkpt: breakpoint, executes as a no-op (entry, fatal-error paths) [C LLE run]
     o=19 53 3d  rdcfg? rd: reads a status/version word (loader tests bit 25)   [G]
-    o=20 5430: unknown (rare; vector code)
+    o=20..23 5430 5530 5630 5730: vcbase (vector unit: VRF column base := 0 / += 16/32/48)  [C gap_test]
     o=24 5830   rti  sr=*sp++, pc=*sp++ (IRQ exit; Nucleus context restore)       [P] boot emulation
 011o ooo i iiii dddd  op4 rd, #imm5  (op4 0..11; see table)                    [C]/[P]
 0111 1wwL ssss dddd   ld/st<w> rd, (rs)++   post-increment by access size      [C] memcmp, memcpy
@@ -143,8 +148,7 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
 1110 0000 Lbbm mmmm   pop rb..r(b+m) [,pc]    bb: 0 r0, 1 r6, 2 r16, 3 r24; L = also pc;
 1111 0000 Lbbm mmmm   push rb..r(b+m) [,lr]   f0ef/e0ef = lr/pc only.  Low byte identical to VC4
                                               stm/ldm (0x03ef = "push lr").             [C]
-                      Memory order as VC4: the highest register at the lowest address, lr/pc
-                      above them (the Nucleus interrupt frame restores only this way). [C, real firmware]
+                      Order: highest register at the LOWEST address, lr/pc above them (VC4).  [C LLE]
 1110 uuuu ssss dddd   ld rd, (rs + 4u)   u = 1..15                              [C] Nucleus list
 1111 uuuu ssss dddd   st rd, (rs + 4u)   u = 1..15                              [C]
 (0x80-0xbf, 0xe0/0xf0 and 0x78-0x7f together make up all 16-bit loads/stores; there is no
@@ -190,8 +194,11 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
 0010 1111 011d dddd | imm32          mov rd, #imm32                             [C]
 0010 1111 001d dddd | o27 | bbbbb    add rd, rb, #sx27  (b=31: pc-relative; b=24 gp)  [C]
                         (o27 = (w2 & 0x7ff)<<16 | w1 ; rb = w2>>11)
-0010 1111 000d dddd | o27 | bbbbb    ld/st rd, (rb + o27&~1); o27 bit0 = store  [C] (ld; st [P])
-0010 1111 1kkd dddd | o27 | bbbbb    ldb/stb rd, (rb + (o27&~1) + k)   (byte lane k = 0..3;
+0010 1111 000d dddd | o27 | bbbbb    o27 bits 1..0: 00 ld, 01 st, 10 ldh, 11 sth at (rb + o27&~3)
+                                     [C] ld; ldh [C MPEG-4 bit reader]; st/sth [P]
+0010 1111 1kkd dddd | o27 | bbbbb    o27 bit1 = 1: ldsh/sth rd, (rb + (o27&~3) + k)  [C ldsh: MPEG-4 VLC sign
+                                     bit at py_fw0 0x204bc -> 13/13 Garage hashes in the LLE run; sth P]
+                                     o27 bit1 = 0: ldb/stb rd, (rb + (o27&~1) + k)   (byte lane k = 0..3;
                         o27 bit0 = store)  [C] loader reads the fup section count with
                         '2fc2 5204 c000' = ldb r2,(gp+0x5206); py_fw1 0x212a8 rebuilds a
                         big-endian word from lanes 0..3 of one offset.
@@ -201,43 +208,109 @@ op4 (16-bit immediate form, hb 0x60-0x77): op5 = 2*op4 for op4 0..7, op4 8 = cmp
 ## Unknown / unresolved
 
 ```
-* op5 9, 17, 29; misc o=3/19/20; 2e op 6/7; 2f op 2.  All rare (< 0.01% of code bytes).
+* op5 9, 17, 29; misc o=19; 2e op 6/7; 2f op 2.  All rare (< 0.01% of code bytes).
 * 4x x nibble 7/b/d/f (odd, not 1/3/5/9): 1 occurrence in reachable code.
 * 3x with bit7 set but bits 6-4 != 111 (2 occurrences).
-* rti, ei/di, sleep semantics not executed.
-* Vector instruction set.
+* rti, ei/di executed only in the LLE real-firmware run (tmp/playyan/emu/lle).
 ```
 
-## Vector instructions (partial)
+## Vector instructions
 
 First halfwords 0x20-0x23 are vector (pixel processing unit) instructions: 0x20/0x21 start 80-bit
-and 0x22/0x23 48-bit forms. Bit 9 of the first halfword is the "compact" (48-bit) flag of the
-Alphamosaic patents (US20030159023, US7036001), and bits 8-3 are the opcode. With these lengths,
-overlapping-decode conflicts across the images fall from 14,312 to 67, all in zero-filled data.
+and 0x22/0x23 48-bit forms (bit 9 is the "compact" flag of the Alphamosaic patents US20030154361,
+US7036001, US20030159023 and EP1320029, whose architecture description the model follows). The unit
+is 16 lanes of 16 bits over a 64x64-byte register file addressed by rows or columns.
 
-A partial model, built for the G.726 code and confirmed by the tests above with ablation:
-
-- **Data operations:** 4 mov, 5 and, 6 max, 7 eor, 8 add, 10 sub, 12 rsub, 14 mul, 26 asr,
-  30 absolute difference, 43 signed shift (left, or right by a negative amount), 44 bit planes
-  (lane i = all ones if bit i of B is set); 11 is a subtract variant, 13 a compare used with a
-  minimum-index reduction.
-- **Memory:** 0 vector load and 1 vector store of 16-bit lanes, with a scalar base register and a
-  16-byte-row offset.
-- **Addressing:** horizontal rows and a vertical (column) mode; a repeat count; per-lane N/Z flags
-  set on request; predication on conditions (always, if N, if not N, VC4 numbering).
-- **Reductions:** sum and minimum-index into a scalar register.
+The model is confirmed the same way as the scalar instructions: firmware kernels run in the
+emulator bit-exact against references, and each opcode or field is ablated (changed to a plausible
+alternative) to show that the kernels then fail. Executed in passing tests: 99.3 % of the reachable
+vector code of the Play-Yan video image, 98.5-98.7 % of the Micro and `playan.fup` video images, and
+99.99-100 % of the music images; no vector encoding in reachable code is unknown. End to end, the
+real firmware's own MPEG-4 decode of the Garage Game files, run in the full-system emulator,
+reproduces the thumbnail hashes in the GBA ROM's table.
 
 ```
-h0 = 0010 00 C oooooo www   C = 1: 48-bit, C = 0: 80-bit; op = bits 8..3;
-                            www bit 2 = vertical addressing, bit 1 = 16-bit lanes
-h1 = DDDDDDDD 111 xx aaa    D = destination (row, or x/y in vertical mode);
-                            A = (h1 & 7) << 5 | h2 >> 11
-48-bit h2: AAAAA i ...      i = 1: bit 9 set-flags, bits 8..6 condition, bits 5..0 simm6;
-                            i = 0: B row = (h2 & 0x3ff) >> 2
-80-bit h3/h4: imm16 = (h3 & 0xfc00) | (h2 & 0x3ff) when i = 1; h3 bit 15 (i = 0): B is a scalar
-              register; h4: bit 14 set-flags, bits 13..11 condition, bits 8..5 repeat,
-              bits 4..3 reduction (1 sum, 2 minimum index), bits 2..0 reduction destination
-```
+Register file  [C: MPEG-4 coefficient reorder 0x26800 builds 16-bit lanes from two 8-bit moves at x
+and x+16 (0/384 errors bytes vs 177/384 with 16-bit cells); pixel conversions; all suites]
+  64 x 64 BYTES P[y][x] (EP1320029).  16-bit lane (y,x) = P[y][x] | P[y][x+16] << 8 (x mod 64);
+  8-bit lane = P[y][x], zero-extended read, low byte written.  32-bit data = two 16-bit registers at
+  x and x+32 of one row (MP3/AAC multi-precision).
+  Register spec s (8 bits) = [h1 h0][m1 m0][n3..n0]:
+     H: row h*16+n, columns m*16 .. +15        V: column m*16+n, rows h*16 .. +15
+  Spec 0x10 as a 16-bit H destination = discard (no write-back; SETF/SRU only) [C G.726 1285/6000 without].
+  16-bit vertical REP steps by 16-bit column (byte column bits 4/5 swapped) [C AAC 0x9930].
+  Column base (hidden): scalar 0x5430 = 0, 0x5530/0x5630/0x5730 += 16/32/48 (mod 64); added to the
+  column of operands whose offset flag is set in 80-bit ALU and memory forms [C bilinear 0x28afa
+  18/18, RGB888 brightness 0x17fcc 10/10; off 1/18, 1/10].
+  Per lane: N Z C flags, 16-bit accumulator (ACC, CLRA).
 
-Not yet known: the other opcodes, 8-bit lanes, most conditions and repeat counts, and the
-column-select bits. The MP3 synthesis and the MPEG-4 transform code use these instructions heavily.
+Encoding
+  h0 = 0010 00 C oooooo www    C = compact (48-bit) [C]; o = opcode [C]; www: bit2 D vertical,
+                               bit1 16-bit, bit0 D offset flag
+  h1 = DDDDDDDD rrr AAAAA       rrr = offset register r0-r6 (7 none): value v adds v&63 to x and
+                               (v>>6)&63 to y (patent "+r0") [C IDCT chroma r0=32, MC r3, requant r6]
+  h2 = AAAAA i bbbbbbbbbb       A10: bit9 A vertical, bit8 A offset flag, bits 7..0 spec
+  48-bit data, i=1: b = F PPP iiiiii (SETF, condition, simm6); i=0: b = Bspec<<2 | Boff<<1 | Bvert
+  80-bit data: h3 = [15 B scalar][14..12 B offset/scalar reg][11 B 16-bit][10 B steps]
+                    [9..5 A field f][4 ?][3..1 A offset reg][0 D/A step]
+               f: bit4 = byte-address mode (8-bit H, y = (A10>>6&3)*16 + f&15, x = A10&63);
+                  f == 0: 8-bit A, no REP step when D is 16-bit; else bit3 = A 16-bit, f&3 added to
+                  the A row/column [C IDCT TAN pairs, MP3 byte-1 multiplies]
+               imm16 = (h3 & 0xfc00) | b when i=1 [C xvid TAN1/2/3, SQRT2 0xB505]
+               h4 = [14 SETF][13..11 cond][10 CLRA][9 ACC][8..5 REP: 1<<n, 7 = r0 times][4..3 SRU op]
+                    [2..0 SRU reg, 7 none]
+  memory (op 0-3): b = RRRR bbb sss: REP 1<<R, base r[bbb], stride r[sss] (7: one row = 16/32 B)
+               vld: D <- mem[base + 16*(sx10(A)<<1 | i) (+2*(h3>>13) 80-bit)], 80-bit: offset reg
+               h4 bits 7..5, lane condition h4 bits 13..11; vst: A -> mem[base + 32*D + 16*i]
+               (direction from A bit9; 80-bit: A-field encoding incl. byte mode); op0/op1 ignore
+               address bits below the row; op2/op3 = unaligned pair (op3 = lanes past the block)
+  Conditions: 0 always, 2 ifz, 3 ifnz, 4 ifn, 5 ifnn, 6 ifc, 7 ifnc (1 never seen)
+  SRU: 0 unsigned lane sum [C MP3 synthesis], 1 signed sum, 2 imin, 3 imax (active lanes only).
+
+Opcodes (lane semantics; a, b signed 16-bit; C = per-lane carry, borrow convention for subtracts)
+   0 vld  1 vst  2 vld2  3 vld3 (unaligned pair)                         [C all suites]
+   4 mov          5 and          6 OR [C MP3 requant 0/640 vs 483/640 as max]   7 eor
+   8 add (C)      9 add, 8-bit dest clamps 0..255 / 16-bit wraps [C pixel, AAC]
+  10 sub (C=borrow)  11 sub variant [P]  12 rsub (C)  13 a<b (with IMIN) [C G.726]
+  14 mul low16    15 saturating mul [MP4]  16 (a*b)>>8 [C pixel]  17 (a*b)>>8 saturated to dest [C brightness]
+  18 mulhd.ss     19 mulhd.su (a * u16 b)>>16 floor [C MP3 dct32/IMDCT MULfw]
+  20 (u16 a * u16 b + 0x8000)>>16 [C AAC iquant, pixel]  21 (a * u16 b + 0x8000)>>16 [C IEEE-1180,
+     MP3 PCM 98.6% vs 94.1%, pixel hashes]  23 (a * u16 b)/65536 toward 0 [MP4]
+  24 shl, C = bit out (wrapping) [C bitstream 0x1FEA0: 12/24 if saturating; AAC]  25 saturating shl, C = sat
+  26 asr, C = last bit out  27 lsr, C = last bit out [C MP3 requant]  28 signed min [C AAC 9/20 as clip]
+  29 max  30 |a-b|  31 |a| >= b  [MP4 AC prediction]
+  34 addc  35 subc  36 rsubc  [C MP3/AAC 32-bit arithmetic; ablation 0/6..0/12]
+  37 clamp a to [0,b] [C MP4 put 0/40 as min]  40 b + sign(a) [MP4 dequant]
+  42 lookup: lane = mem16[r(base) + 2*acc] (memory-op format) [C AAC iquant, MP3 requant]
+  43 a<<b or a>>-b  44 bitplanes (lane L = -1 if bit L of b)  [C G.726]
+
+Kernels matched (references)
+  G.726 16-40 kbit/s (Sun g72x) 6000/6000.
+  MPEG-4 (py_fw0): IDCT 0x26002 = AP-922/xvid tan butterfly with a prescale table and ROUNDED
+    multiply-high (not ff_xvid_idct: 29% identical, rest +-1; IEEE-1180 passes except the overall mean
+    error 0.005); H.263 and MPEG dequant (ffmpeg / ISO 14496-2 7.4.4.2), AC prediction, half-pel MC both
+    rounding modes + edge padding, 4MV, put/clamp, bitstream unpacker 0x1FEA0 + bit reader.
+  Pixel: YUV420->RGB565 0x284a0 (298/408/516/100/200 >>8, chroma planes swapped vs ISO), 240x176 crop to
+    240x160 and 4:1 box filter to 60x40 (0x2749a/0x276de), 2x2 mean, bilinear/nearest scalers, palette
+    and RGB888/565 conversions, brightness 0x27bea (factor gp+1632, 256 neutral).  END TO END: the
+    firmware's own decode in the LLE run (C port) reproduces all 13 Garage thumbnail hashes.
+  MP3 (py_fw1): dct32 0x49c (libmad Lee structure, constants 2cos(k pi/64) float32 *2^24), IMDCT long
+    0xa96c / short 0x12446 (own 67-multiply structure), synthesis window 0x316b4 (libmad D.dat),
+    requantiser 0x35058 (pow43 table 0x244a0, gain table 0x234a0) -- all bit-exact vs fixed-point reference models; firmware PCM vs ffmpeg/minimp3 max 1 LSB, 98.6% identical.  8-bit GBA PCM is
+    scalar (0x3185e).
+  AAC (mi_fw0/fup_sec0): FAAD2 C structure, Alphamosaic vector helpers: window mul/add, complex
+    multiplies, 16-point FFT, iquant (cube-root table 0x8948), PCM out, and the whole IMDCT (0x97d6
+    N=2048, 0x99d8 N=256 incl. 0xad4a) and filter bank ifilter_bank 0x21bb2 (all window sequences) --
+    bit-exact vs the pure-Python fixed-point model (float deviation 2.4e-5).
+    SRU instructions DO write their VRF destination [C AAC block float: 10/20 without].
+
+Coverage of reachable vector code: executed in passing tests
+  py_fw0 99.26%  mi_fw0 98.67%  fup_sec0 98.52%  py_fw1/mi_fw1/fup_sec1 99.99-100%; unknown 0%.
+
+Open
+  0x286e4 mode 0 (2:1 point sampling, 80 B): output px 8-15 wrong with the current 8-bit vertical
+    store model (possibly a firmware bug).  Op 11 vs 10, op 15/23/29/31/40 only [P] from single kernels.
+  Accumulator saturation (only reachable with int32-overflowing IMDCT input), op17 rounding, h3 bit 4, A-field
+    bit 2, cond 1 -- no kernel discriminates.  op2 vs op3 individually.
+  AAC: real-bitstream frame decode not run (scalar FAAD2 front end, scalefactor gain 0x93d4, M/S, TNS).
+```

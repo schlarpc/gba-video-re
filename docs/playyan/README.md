@@ -37,10 +37,9 @@ emulated cartridge built from [protocol.md](protocol.md) (below).
   averaged ring fill. The first half of each audio block plays on the right speaker
   ([player.md](player.md) 6).
 - **The chips.** The firmware names itself `vc01pp_*` (VC01, not VC02) and runs Nucleus PLUS. Its
-  instruction set, a relative of VideoCore IV with its own encodings, is decoded: 99.99 % of the
-  reachable code, with an emulator that runs firmware routines bit-exact against independent
-  references, including the G.726 codec ([vc01-isa.md](vc01-isa.md)). The vector unit is partly
-  decoded. The Nintendo MP3 Player's
+  instruction set, a relative of VideoCore IV with its own encodings, is decoded, vector unit
+  included: an emulator runs the firmware's routines and its MPEG-4, MP3, AAC and G.726 kernels
+  bit-exact against independent references ([vc01-isa.md](vc01-isa.md)). The Nintendo MP3 Player's
   chip, unidentified before, is a TI TMS320VC5416 DSP running DSP/BIOS, booted from a standard C54x
   boot table ([c54x-hardware.md](c54x-hardware.md)).
 - **Corrections to the prior art** ([prior-art.md](prior-art.md)), among them: the "firmware
@@ -72,11 +71,13 @@ to a patched mGBA running the real GBA ROM. Neither side is simulated at a high 
   RESET_STANDBY, music image, folder walk. With `playan.fup` on the SD card, the loader reads and
   checks every block and starts the v1.11 image, and the GBA carries on with it.
 - Music: browse, ID3 tags parsed by the firmware, play, fast-forward, rewind, pause, end of song
-  and the move to the next song, all driven by the firmware's own records. The audio content is
-  not yet right, because the MP3 synthesis is vector code the emulator cannot run yet.
-- Video: the video image loads and lists files, but the thumbnail request is never answered: the
-  MPEG-4 bitstream unpacker is vector code. Once it runs, the 13 Garage Game thumbnail hashes are a
-  ready-made end-to-end check.
+  and the move to the next song, all driven by the firmware's own records. The MP3 kernels are
+  bit-exact against fixed-point references, and their output is within 1 LSB of ffmpeg.
+- Video: the firmware decodes the ASF files itself. **Its thumbnails of the Garage Game files
+  match the hashes in the GBA ROM's table**, an end-to-end check of the MPEG-4 decoder, the colour
+  conversion and the 240x176 to 60x40 crop and scale (centred 240x160, then a 4:1 box filter). Full
+  videos play with recognisable pictures, but with colour errors at edges that are not yet
+  explained.
 - The Micro boots and reads its key file through the firmware.
 - **Nintendo MP3 Player:** the real DSP firmware runs on an emulated TMS320VC5416 under the real
   GBA ROM through upload, boot, mount, menu, ID3, playback, seek and the `meteor.fup` update. **Its
@@ -119,14 +120,11 @@ V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/
 
 ## Open issues
 
-- The high-level cartridge model's ffmpeg thumbnails never match the Garage Game hashes (about
-  2,300 crop, sampling and rounding variants tried); the real firmware's thumbnail path is blocked
-  on the vector unit. Not yet exercised: music-mode sleep, the Micro's auto-play
+- The colour errors in full-screen video playback on the real firmware (thumbnails are exact). Not yet exercised: music-mode sleep, the Micro's auto-play
   (0x4000/0x4001), the MP3 Player's background play and sleep, and the update path with a real
   `.fup`.
-- The VC01 vector instructions beyond the G.726 subset, and with them the MPEG-4, MP3 and AAC
-  codecs, the 240x176 to 240x160 fit, the thumbnail scaling, the brightness processing and the 8-bit
-  audio conversion.
+- Standalone bit-exact decoders (C and Rust) for this family, from the firmware's kernels; AAC on a
+  real bitstream (its scalar front end is not modelled yet).
 - How the cartridge paces frames and audio blocks that
   the GBA never acknowledges, and the roles of CTRL bit 4 and the GO register
   ([player.md](player.md) 12).

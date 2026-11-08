@@ -96,7 +96,9 @@ code in every image decodes to a known scalar instruction or a vector instructio
 An emulator built from the decoding runs real firmware routines bit-exact against independent
 references: 64-bit and soft-float arithmetic, sprintf, FAT and Nucleus code, the `.fup` block check,
 the whole firmware download, and the G.726 codec (6,000 cases against Sun's reference code). The
-vector unit, which carries 8 % of the video code and 44 % of the music code, is only partly decoded.
+vector unit, 8 % of the video code and 44 % of the music code, is decoded too: its MPEG-4, MP3,
+AAC and pixel kernels run bit-exact against references, and the firmware's own decode reproduces
+the Garage Game thumbnail hashes.
 
 ## 4. The update path (loader)
 
@@ -140,6 +142,5 @@ The image's codec has not been examined.
 - What an AES-like GF(2^8) table in the loader is for.
 - The mode-0x28 read of VC 0x80000 before every upload, and the host-interface registers at
   VC 0x10000000.
-- The vector instructions beyond the G.726 subset, and with them the MP3 and MPEG-4 hot loops
-  ([vc01-isa.md](vc01-isa.md)).
-- How the firmware fits 240x176 video into the 240x160 frames it returns.
+- A few vector details no kernel tells apart ([vc01-isa.md](vc01-isa.md), Open).
+
