@@ -1,5 +1,6 @@
 # Bring your own ROM; never commit it
 *.gba
+*.fup
 *.zip
 roms/
 # Build outputs and generated files
@@ -16,6 +17,17 @@ reference/hydrogen/hystat
 reference/ads/adsdec
 reference/sonicx2-proto/sx2dec
 reference/sonicx2-proto/audio/sx2adec
+reference/playyan/video/pyvdec
+reference/playyan/video/fw_tables.h
+reference/playyan/g726/pyg726dec
+reference/playyan/g726/g726_test
+reference/playyan/mp3/pymp3dec
+reference/playyan/mp3/fw_music.h
+reference/playyan/aac/pyaacdec
+reference/playyan/aac/fw_tables.h
+reference/playyan/nmp/pynmpdec
+reference/playyan/nmp/nmp_tables.h
+*.tmp
 ref/
 # Scratch, captures and run outputs (may contain decoded movie content)
 tmp/
