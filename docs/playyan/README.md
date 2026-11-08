@@ -70,8 +70,8 @@ card. The emulator, its patch and the traces are local and not in this repositor
 - Every register access site and all 26 command lengths that were exercised match the documents.
   Corrections from the traces, marked **[run]**: CTRL is read back by one pulse and bit 1 is a
   read-restart strobe; the dummy FIFO read is 0x81 reads; video 0x905 is relative seconds; the
-  Garage Games send no video commands; an odd-length key file loses its last byte (Nintendo's own
-  sample is rejected for that reason); fast-forward and rewind lower the volume to 3/4.
+  Garage Games send no video commands; an odd-length key file loses its last byte (harmless with CRLF
+  endings, as in Nintendo's sample; fatal with LF endings); fast-forward and rewind lower the volume to 3/4.
 - Choices the GBA code does not fix, so the model made them: the 240x176 to 240x160 crop and scale,
   the thumbnail scaling, frame timing at the source rate, brightness as a plain gain.
 

@@ -405,8 +405,9 @@ All addresses in this section are Micro addresses. Full detail: [micro.md](micro
   - a value is an optional `-` and 1-4 digits, and **must be followed by a space, tab, CR or LF**,
     so the last line needs a newline.
   - The GBA copies the file in halfwords and takes half the byte count, so a file of odd length
-    loses its last byte. Nintendo's sample `play_yanmicro.ini` (175 bytes, LF endings) loses its
-    final newline this way and is rejected; one more newline makes it pass **[run]**.
+    loses its last byte. Nintendo's sample `play_yanmicro.ini` (183 bytes, CRLF) only loses its
+    final LF, and the CR still ends the last line. The same text with LF endings (175 bytes) loses
+    its only terminator and is rejected **[run]**.
 
   Any lexical error discards the whole file. A Design or StartMode outside 0..1, or an
   AudioPlayMode or VideoPlayMode outside 0..3, skips only that key. In both cases the "bad key
