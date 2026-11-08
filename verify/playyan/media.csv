@@ -1,0 +1,22 @@
+stem,file,md5,size,source
+AVOID,AVOID.ASF,3e4c3607013130211606cf78ad1a21aa,641070,https://www.nintendo.co.jp/n08/playan/garage/avoid.zip
+BAT,BAT.ASF,852824ab8d676410cae43baf2a41c09d,636974,https://www.nintendo.co.jp/n08/playan/garage/bat.zip
+CREDIT,CREDIT.ASF,13293ed2aee24c4a16f3d9fc49153879,645166,https://www.nintendo.co.jp/n08/playan/garage/credit.zip
+FIRE,FIRE.ASF,e33ed2398bc8487c35729d1f0ce482c0,641070,https://www.nintendo.co.jp/n08/playan/garage/fire.zip
+FISH,FISH.ASF,e89a0fb1a5d4a51dc7c424504c17921a,645166,https://www.nintendo.co.jp/n08/playan/garage/fish.zip
+INSECT,INSECT.ASF,1c05888409f0a34dc113261ec4382b15,645166,https://www.nintendo.co.jp/n08/playan/garage/insect.zip
+JUMP,JUMP.ASF,ea683a2c1b918534fc40663a554b76b6,641070,https://www.nintendo.co.jp/n08/playan/garage/jump.zip
+KEEPER,KEEPER.ASF,8128525f400d8fe412db11e2f29845a8,645166,https://www.nintendo.co.jp/n08/playan/garage/keeper.zip
+MEMORY,MEMORY.ASF,41ccd37d8b911a9642db8772bc073bea,641070,https://www.nintendo.co.jp/n08/playan/garage/memory.zip
+NEKOROID,NEKOROID.ASF,fa51c4fd7b469abaf615b128a8f04a30,645166,https://www.nintendo.co.jp/n08/playan/garage/nekoroid.zip
+NOSE,NOSE.ASF,cd016a28b26ef41e4a0962267b86a7e7,641070,https://www.nintendo.co.jp/n08/playan/garage/nose.zip
+TRIPLE,TRIPLE.ASF,c9ac27b1450228ba3a485f6b3fdc56fb,641070,https://www.nintendo.co.jp/n08/playan/garage/triple.zip
+WAVE,WAVE.ASF,fe0e6510c581d38152c95d0a7cba7fe2,641070,https://www.nintendo.co.jp/n08/playan/garage/wave.zip
+chirp_44100,chirp_44100.mp3,6d900e333e72aebd4a2c355f12156989,160958,generated locally (see tools/playyan/emu)
+sample_movie,sample_movie.asf,4ecc7e9eaae52e750ccf607224ca1120,6216236,https://www.nintendo.co.jp/n08/playan/support/sample_movie.zip
+sample_music,sample_music.mp3,867b1c0668b847b096c78d292a98b4f6,2315538,https://www.nintendo.co.jp/n08/playan/support/sample_music.zip
+tone_32000,tone_32000.mp3,457791cd7b0012cfa1b419084eb434f4,96813,generated locally (see tools/playyan/emu)
+tone_44100,tone_44100.mp3,e39cb0f4b105157c6e12f8edca56fcba,96592,generated locally (see tools/playyan/emu)
+tone_48000,tone_48000.mp3,586172d6584f81518cce21ca5a47225f,96429,generated locally (see tools/playyan/emu)
+mp4sample_movie_direct,mp4sample_movie.mp4,6a16fcaeb7308fd1f2c1f699acf71492,8382217,https://www.nintendo.co.jp/n08/playan/firmware/mp4sample_movie.mp4
+mp4sample_movie_zip,MP4sample_movie.mp4,d8103545c2842e1bdeb960a1488cc3a2,8382240,https://www.nintendo.co.jp/n08/playan/firmware/mp4sample_movie.zip (also play_yan_micro/support/mp4sample_movie.zip)
