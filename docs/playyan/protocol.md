@@ -582,7 +582,8 @@ Then N halfwords are streamed through data in or data out, with the Game Pak int
 (doorbell); **0x08** after the firmware entry point is written, and at the start of every Game Pak
 interrupt (acknowledge).
 
-The layout matches the **C54x 8-bit host port interface (HPI-8)** **[inferred]**: HPIC is written
+The layout is the **C54x 8-bit host port interface (HPI-8)**, confirmed by running the real DSP
+firmware ([c54x-hardware.md](c54x-hardware.md)) **[lle]**: HPIC is written
 with the same value in both bytes; XHPIA (bit 4) selects the extended address half; DSPINT
 (bit 2) interrupts the DSP; writing HINT (bit 3) clears the host interrupt; the address is
 pre-incremented on writes, hence the "address - 1". Those bit names come from TI's HPI
@@ -681,13 +682,13 @@ Strings are 16-bit characters ending in 0. String commands always send 0x106 wor
 | 0x0010 | 2 | 1: junk | 0x4010 | open folder listing, return the first entry |
 | 0x0011 | 2 | 1: junk | 0x4011 | next entry |
 | 0x0020 | 0x106 | name (`\` root, `..` up, `.` stay) | 0x4020 | change folder; the GBA keeps a path stack 4 deep |
-| 0x0030 | 4 | 1: 1, 2: 0 | - | sent at every scene change, then Timer 0 = 16384 Hz [inferred: audio reset; the Play-Yan's 0x400(1, 0) is the same pattern] |
+| 0x0030 | 4 | 1: 1, 2: 0 | - | sent at every scene change, then Timer 0 = 16384 Hz. Word 1 turns on the 8-bit audio stream to the GBA (blocks flow only when no headphones are plugged in); word 2 is saved by 0x0400 and restored by 0x0401 **[lle]**. Not an audio reset |
 | 0x0040 | 0x106 | file name | 0x4040 | read ID3 |
 | 0x0050 | 0x106 | file name | 0x4050 | play |
 | 0x0051 | 2 | - | 0x4051 | stop |
 | 0x0052 / 0x0053 | 2 | - | - | pause / resume |
 | 0x0060 | 2 | 1: **absolute position 0..0x6400** | - | seek: fast-forward and rewind send pos ± step every 15 frames; the step grows by 0x10 per send up to max(0x355, 0xC800 / song seconds), or the maximum at once with A held. Also resumes a saved position |
-| 0x0070 | 2 | 1: 0 or 1 | - | 1 before play, 0 before background play [inferred: sample streaming to the GBA on/off; cf. Play-Yan 0x906] |
+| 0x0070 | 2 | 1: 0 or 1 | - | 1 before play, 0 before background play: position records on/off during playback **[lle]**, the counterpart of the Play-Yan's 0x906 |
 | 0x0080 | 2 | 1: volume 0..0x2E = level (0..36) x 0x2E / 0x24 | - | volume; x13/16 in one mode |
 | 0x0200 | 4 | 1: sound ID, 2: clamp(level x 0x3F / 0x24, 0x10, 0x3F) | 0x8100 records | sound effect |
 | 0x0300 | 0x106 | file name (loader: `meteor.fup` only) | 0x4300 | open file |
@@ -696,9 +697,9 @@ Strings are 16-bit characters ending in 0. String commands always send 0x106 wor
 | 0x0303 | 2 | - | 0x4303 | close file |
 | 0x0400 | 0xCE (app) | 1: play mode, 2: n1, 3: n2, 4: current index, 5-104: table A, 105: p5, 106-205: table B | 0x4400, then 0x4401 | background play: after about 30 s idle while playing, the GBA hands over the play list and blanks the screen [inferred tables] |
 | 0x0401 | 2 | - | 0x4401 | leave background play |
-| 0x0500 | 2 | - | - | sleep; the GBA then enters Stop |
+| 0x0500 | 2 | - | - | sleep; the GBA then enters Stop. The DSP powers the codec down; no record **[lle]** |
 | 0x0501 | 2 | - | 0x8501 | wake |
-| 0x0800 | 2 | - | 0x4800 | sent before loading a validated meteor.fup image [inferred: prepare for firmware replacement] |
+| 0x0800 | 2 | - | 0x4800 | sent before loading a validated meteor.fup image: the DSP replies 0x4800 and jumps to its on-chip ROM bootloader, ready for a new upload **[lle]** |
 
 ### 11.5 Status records
 
@@ -730,10 +731,13 @@ A = w2 \| w3 << 16, B = w4 \| w5 << 16, C = w6 \| w7 << 16.
 | 0x8001 | boot complete, w1 = status, arms the watchdog |
 | 0x8100 | audio / position (below) |
 | 0x8501 | wake complete |
-| 0x8600 | headphones: w1 = 1 plugged in, 0 not |
+| 0x8600 | headphones: w1 = 1 plugged in, 0 not. The jack is a GPIO input on the DSP, debounced 96 ms; sent after every 0x8001 and on change. Plugging in stops the GBA sample stream **[lle]** |
 | other | error 1, ID kept |
 
-The dispatcher does not handle 0x4030, 0x4052, 0x4053, 0x4060, 0x4070, 0x4080, 0x4200 or 0x4500.
+The dispatcher does not handle 0x4030, 0x4052, 0x4053, 0x4060, 0x4070, 0x4080, 0x4200 or 0x4500, and
+the DSP sends none of them: 0x52, 0x53, 0x60, 0x70 and 0x80 produce no record, 0x0200 only 0x8100
+sample blocks **[lle]**. The DSP waits for the GBA's clear of 0x0100 before it posts the next
+record, so here the clear is a real handshake **[lle]**.
 Dandocs lists some of them as replies.
 
 **0x8100** **[code]**:
@@ -746,7 +750,8 @@ Dandocs lists some of them as replies.
 
 **Data blocks** **[code]**:
 
-- Directory entry, 0x210 bytes: 16-bit-character name at +0, u16 type at +0x20C (folder or file,
+- Directory entry, 0x210 bytes: 16-bit-character name at +0, u32 file size at +0x208 (low word
+  first), u16 type at +0x20C: 0 = folder, 2 = file **[lle]** (folder or file,
   folders sort first).
 - ID3 block, 0x110 bytes: title (16-bit characters) at +4, artist at +0x88, **u32 song length in
   seconds at +0x10C**.
@@ -759,7 +764,8 @@ attempt) **[code]**:
 1. 0x0300 `meteor.fup`. A non-zero status ends the update.
 2. 0x0301(0x40). The header must be exactly 0x40 bytes, start with the 0x2E-byte string, and have a
    byte sum of 1 mod 256. Byte +0x3E holds the number of 16-byte directory entries.
-3. 0x0301(n x 16). Select the first entry with a valid sum, byte +8 == 1, bit 1 of byte +0xD set
+3. 0x0301(n x 16). Select the first entry with a valid sum, byte +8 == 1, bit 1 of byte **+9** set
+   (the kind byte, as in `playan.fup`; a file built with the flag at +0xD is rejected **[lle]**)
    and size (+4) ≤ **0x1FFFF**. Then 0x0302 to its offset (+0).
 4. Repeat 0x0301(min(remaining + 1, 0x201)). Each chunk's last byte is a check byte that makes the
    chunk's sum 1 mod 256; the other bytes are appended.

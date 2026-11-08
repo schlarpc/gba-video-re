@@ -1,5 +1,11 @@
 # Nintendo MP3 Player (ZMDE, Europe): GBA program and cartridge protocol (working notes)
 
+> These are the static-analysis notes. Running the real DSP firmware later corrected four points;
+> [protocol.md](protocol.md) 11 has the corrected text: 0x0030 word 1 enables the 8-bit audio stream
+> to the GBA (not an audio reset); 0x0070 switches position records (not sample streaming); the
+> `meteor.fup` entry flag is bit 1 of byte +9, not +0xD; the directory entry type is 0 = folder,
+> 2 = file, with the file size at +0x208.
+
 Scope: `Nintendo MP3 Player (Europe) (En,Fr,De,Es,It).gba`, first 1 MiB (sha1 `b7c517f1...`), mapped
 at 0x08000000. Everything below is read from the ROM's ARM/Thumb code unless tagged.
 Tags: **[code]** read from the code (Ghidra decompile + capstone), **[inferred]** our reading of
