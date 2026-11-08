@@ -9,7 +9,7 @@ and copies finished frames and audio blocks out of it.
 |---|---|---|---|---|
 | Play-Yan (Japan), 2005; also the iQue MP4 Player (same ROM) | `Play-Yan (Japan)` | 7f432bbf6f0e5e1b8324c7d6bb1d81a254a6e870 | Alphamosaic VC01 | ASF (MPEG-4 Part 2 + G.726), MP3; MP4 (AAC) with `playan.fup` |
 | Play-Yan Micro (Japan), 2005 | `Play-Yan Micro (Japan)` | 17b5f7ad459448b447fa94617d09886cd4f9c554 | Alphamosaic VC01 | ASF, MP4, MP3 |
-| Nintendo MP3 Player (Europe), 2006 | `Nintendo MP3 Player (Europe) (En,Fr,De,Es,It)` | b7c517f1cb5860fec8beaa4e819bcffa8ce95a5b | TI TMS320C54x DSP | MP3 |
+| Nintendo MP3 Player (Europe), 2006 | `Nintendo MP3 Player (Europe) (En,Fr,De,Es,It)` | b7c517f1cb5860fec8beaa4e819bcffa8ce95a5b | TI TMS320VC5416 DSP | MP3 |
 
 Common dumps are 4 MiB, the 1 MiB image mirrored four times; the first 1 MiB matches No-Intro.
 
@@ -41,7 +41,8 @@ emulated cartridge built from [protocol.md](protocol.md) (below).
   reachable code, with an emulator that runs firmware routines bit-exact against independent
   references, including the G.726 codec ([vc01-isa.md](vc01-isa.md)). The vector unit is partly
   decoded. The Nintendo MP3 Player's
-  chip, unidentified before, is a TI TMS320C54x DSP booted from a standard C54x boot table.
+  chip, unidentified before, is a TI TMS320VC5416 DSP running DSP/BIOS, booted from a standard C54x
+  boot table ([c54x-hardware.md](c54x-hardware.md)).
 - **Corrections to the prior art** ([prior-art.md](prior-art.md)), among them: the "firmware
   read-back" is a RAM test, 0x500 is 0x118 bytes, 0x905 has one parameter, 0x906 is
   PLAY_POSITION_IND_SET rather than a sleep command, the Micro sends the same 32-bit structures as
@@ -55,6 +56,7 @@ emulated cartridge built from [protocol.md](protocol.md) (below).
 | [player.md](player.md) | The GBA program: boot, memory map, interrupts, scenes, firmware loading, video and audio pacing, controls, resume, sleep, Garage Games, Micro key file, MP3 Player structure |
 | [firmware.md](firmware.md) | The firmware images and `playan.fup`, their contents, the loader's update path, the MP3 Player's C54x image |
 | [vc01-isa.md](vc01-isa.md) | The VC01 instruction set: scalar encodings with evidence, coverage, the vector subset decoded so far |
+| [c54x-hardware.md](c54x-hardware.md) | The Nintendo MP3 Player's DSP board as the firmware uses it: HPI, clocking, McBSPs (DAC, codec control and jack, SD card over SPI), DMA, timer; the audio result |
 | [vc01-hardware.md](vc01-hardware.md) | The VC01's peripherals as the firmware uses them: interrupts, timer, GPIO, SD card over SPI, AC'97 audio, DMA, the clock |
 | [micro.md](micro.md) | Play-Yan Micro: differences from the original, address by address |
 | [nmp.md](nmp.md) | Nintendo MP3 Player: working notes, address by address |
@@ -76,6 +78,11 @@ to a patched mGBA running the real GBA ROM. Neither side is simulated at a high 
   MPEG-4 bitstream unpacker is vector code. Once it runs, the 13 Garage Game thumbnail hashes are a
   ready-made end-to-end check.
 - The Micro boots and reads its key file through the firmware.
+- **Nintendo MP3 Player:** the real DSP firmware runs on an emulated TMS320VC5416 under the real
+  GBA ROM through upload, boot, mount, menu, ID3, playback, seek and the `meteor.fup` update. **Its
+  decoded MP3 matches ffmpeg to within 1 LSB** (SNR 96.3 dB, 98.6 % of samples identical) on
+  Nintendo's sample file ([c54x-hardware.md](c54x-hardware.md)). This run corrected four points of
+  the static reading: 0x0030 and 0x0070, the `meteor.fup` entry flag and the directory entry type.
 
 Claims tagged **[lle]** in the other documents come from these runs. The emulator,
 its mGBA patch and the traces are local and not in this repository.
