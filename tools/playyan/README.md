@@ -18,7 +18,7 @@ mGBA's licence, the Mozilla Public License 2.0, as its SPDX header says.
 ## Setup
 
 Python 3 with numpy (Pillow for screenshots), gcc, ffmpeg, mtools and dosfstools (`mkfs.fat`), and
-Nix for the mGBA source. The tools read these environment variables:
+Nix for the mGBA source and LAME (both from a pinned nixpkgs revision). The tools read these environment variables:
 
 | variable | meaning | default |
 |---|---|---|
@@ -115,10 +115,9 @@ for f in ../../../tmp/check/*.gz; do cmp "$f" ../../../verify/playyan/$(basename
 
 Garage Game files must be renamed (`--name XAVOID.ASF`), or the GBA starts the game instead of
 playing the video. Without `--out`, `make_manifests.py` writes into `verify/playyan`. The manifests
-are gzip with mtime 0, so a capture that reproduces the committed one gives identical files. The
-`gba_cycle` column (pacing only; nothing checks it) of the original Play-Yan's and v1.11's sets
-was recorded with an earlier build of the emulator and now differs, mostly by one 1,024-cycle
-coupling slice; every hash column is unchanged, and the Micro's sets reproduce byte for byte
-([verify/playyan](../../verify/playyan/README.md#reproducing)). The test tones and the chirp of the music sets are not
-published files: `media.csv` gives their md5, and a fresh encode with another ffmpeg or LAME build
-differs from them.
+are gzip with mtime 0, so a capture that reproduces the committed one gives identical files.
+
+`emu/make_test_audio.py` makes the test tones and the chirp of the music sets (integer-only PCM,
+LAME 4.0 from a pinned nixpkgs, md5s checked), and `emu/capture_all.py -j N --out DIR` runs all 61
+captures and the manifests in one go; two such runs give byte-identical manifests, equal to
+verify/playyan ([Reproducing](../../verify/playyan/README.md#reproducing)).

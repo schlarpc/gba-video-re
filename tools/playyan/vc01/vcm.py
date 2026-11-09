@@ -59,12 +59,15 @@ def make_sd(src, img=None, size_mb=64):
     img = img or os.path.join(TMP, os.path.basename(os.path.normpath(src)) + '.img')
     if os.path.exists(img):
         os.remove(img)
+    # fixed clock (1980-01-01, the FAT epoch): the volume serial and the directory timestamps
+    # otherwise come from the host's clock, and the image would differ from run to run
+    env = dict(os.environ, SOURCE_DATE_EPOCH='315532800')
     subprocess.check_call(['mkfs.fat', '-C', '-F', '16', '-n', 'PLAYYAN', img, str(size_mb * 1024)],
-                          stdout=subprocess.DEVNULL)
+                          stdout=subprocess.DEVNULL, env=env)
     ents = [os.path.join(src, e) for e in sorted(os.listdir(src))]
     if ents:
         subprocess.check_call(['mcopy', '-s', '-Q', '-i', img] + ents + ['::/'],
-                              env=dict(os.environ, MTOOLS_NO_VFAT='0'))
+                              env=dict(env, MTOOLS_NO_VFAT='0'))
     return img
 
 

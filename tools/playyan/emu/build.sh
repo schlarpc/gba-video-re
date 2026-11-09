@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build the patched mGBA libretro core with the Play-Yan family cartridge model (mgba-pyan.patch,
-# MPL-2.0 like mGBA itself) from the nixpkgs mGBA source (nix build nixpkgs#libretro.mgba.src).
+# MPL-2.0 like mGBA itself) from the mGBA source of a pinned nixpkgs revision (NIXPKGS below; the
+# floating nixpkgs registry entry would move the source under the patch and the captures).
 #   ./build.sh            fresh tree in $PLAYYAN_WORK/build/mgba-pyan, patched, then make
 #   ./build.sh --inplace  rebuild the existing tree (after editing src/gba/cart/pyan.c there)
 #   ./build.sh --diff     regenerate mgba-pyan.patch from the edited tree (keeps the SPDX header)
@@ -11,7 +12,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="${PLAYYAN_WORK:-$HERE/../../../tmp/playyan}"
 mkdir -p "$WORK/build"
 cd "$WORK/build"
-SRC=$(nix build --no-link --print-out-paths nixpkgs#libretro.mgba.src | tail -1)
+# libretro.mgba 0-unstable-2026-07-28, /nix/store/b8dbfhgr2g5sbzycwcwmamp5viwgk8qp-source
+NIXPKGS="${NIXPKGS:-github:NixOS/nixpkgs/3ec636362e1816bc2f0888fa0fa2c69f1bc9e504}"
+SRC=$(nix build --no-link --print-out-paths "$NIXPKGS#libretro.mgba.src" | tail -1)
 case "${1:-}" in
 --diff)
   { sed -n '1,/^$/p' "$HERE/mgba-pyan.patch"
