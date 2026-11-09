@@ -40,7 +40,7 @@ FVMV players share Actimagine's GBA audio output stage (4x interpolation and noi
 | [ADS](docs/ads/README.md) | 21 of 22 | 96 | 14.5 | 621,421 / 621,462 | 51,791 / 51,793 | [ads](docs/ads/README.md) |
 | **all** | 46 of 47 | 179 | 39.2 | 1,432,352 / 1,432,393 | 6,328,659 / 6,742,179 | [carts.md](docs/carts.md) |
 | [AM3](docs/am3/README.md) (adapter + SmartMedia cards) | not in the DAT | - | - | firmware loader only | - | [am3](docs/am3/README.md) |
-| [Play-Yan](docs/playyan/README.md) (SD card media players; firmware in our emulator) | 3 in the main GBA DAT | 61 | 0.4 | 29,258 / 29,258 | 71,333 / 71,333 | [playyan](docs/playyan/decoders.md) |
+| [Play-Yan](docs/playyan/README.md) (SD card media players; firmware in our emulator) | 3 in the main GBA DAT | 61 | 0.4 | 29,258 / 29,258 | 71,313 / 71,313 | [playyan](docs/playyan/decoders.md) |
 <!-- END gen_tables:summary -->
 
 For every stream, the ground truth is a whole-stream capture of the cartridge in a headless

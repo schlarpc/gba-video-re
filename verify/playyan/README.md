@@ -35,7 +35,7 @@ media file by its md5 there, so the files can keep their original names:
 | stem | file | md5 |
 |---|---|---|
 | `sample_music` | Nintendo's `sample_music.mp3` (MPEG-1 Layer III, 44.1 kHz) | 867b1c0668b847b096c78d292a98b4f6 |
-| `tone_32000`, `tone_44100`, `tone_48000`, `chirp_44100` | 12 s test tones and a 10 s chirp, MP3 at those rates (ours, not published) | - |
+| `tone_32000`, `tone_44100`, `tone_48000`, `chirp_44100` | 12 s test tones (left 1 kHz, right 1.5 kHz) and a 10 s chirp (200 to 2,000 Hz), MP3 at those rates; ours, made bit for bit by `tools/playyan/emu/make_test_audio.py` (LAME 4.0, pinned) | in media.csv |
 | `sample_movie` | Nintendo's `sample_movie.asf` (MPEG-4 SP + G.726-32) | 4ecc7e9eaae52e750ccf607224ca1120 |
 | `AVOID` ... `WAVE` | the 13 Garage Game ASFs (`<NAME>.ASF`); put on the card as `X<NAME>.ASF` so the GBA plays them as video instead of starting the game | - |
 | `mp4sample_movie_zip` | Nintendo's `MP4sample_movie.mp4` from the zip downloads (MPEG-4 SP + AAC-LC) | d8103545c2842e1bdeb960a1488cc3a2 |
@@ -103,24 +103,35 @@ target/release/gbav verify FILE... --firmware FW... --manifests verify/playyan
 ## Reproducing
 
 With your ROMs and `playan.fup` in `PY_ROMS` and Nintendo's files in `PY_MEDIA`
-([tools/playyan/README.md](../../tools/playyan/README.md) has the setup):
+([tools/playyan/README.md](../../tools/playyan/README.md) has the setup), and a fresh
+`PLAYYAN_WORK`:
 
 ```sh
-python3 tools/playyan/extract_firmware.py      # firmware images, checked by sha1
-tools/playyan/emu/build.sh                     # the patched mGBA core
-cd tools/playyan/emu
-python3 capture.py BUILD KIND FILE [--name NAME] --tag TAG    # BUILD orig | v111 | micro, KIND music | video
-python3 make_manifests.py --out DIR TAG...     # then cmp DIR/* with verify/playyan
+python3 tools/playyan/extract_firmware.py          # firmware images, checked by sha1
+tools/playyan/emu/build.sh                         # the patched mGBA core (mGBA source from a pinned nixpkgs)
+python3 tools/playyan/emu/make_test_audio.py       # the tones and the chirp -> $PLAYYAN_WORK/media/test, md5s checked
+python3 tools/playyan/emu/capture_all.py -j 4 --out DIR   # all 61 captures, then make_manifests.py
+for f in DIR/*.gz; do cmp "$f" verify/playyan/$(basename "$f"); done
 ```
 
-`BUILD` is the cartridge and firmware: `orig` decodes on `py_fw0`/`py_fw1`, `v111` puts
-`playan.fup` on the card (`fup_sec0`/`fup_sec1`), `micro` is the Play-Yan Micro. Garage Game files
-go on the card as `X<NAME>.ASF` (`--name`); `make_manifests.py` names each set by the file's md5 in
-[media.csv](media.csv). Checked on 2026-11-08 with the published emulator: the Micro's `AVOID` and
-`mp4sample_movie_zip` sets come out byte-identical, and `py_fw0_AVOID`, `fup_sec0_AVOID` and
-`py_fw1_tone_44100` identical in every hash column. In the original's and v1.11's sets the
-`gba_cycle` column differs (mostly by one 1,024-cycle coupling slice, two frames of
-`fup_sec0_AVOID` by up to 0.05 s): those sets were captured with an earlier build of the
-emulator, before its last changes to the peripheral model and the mGBA coupling, which moved the
-original GBA ROM's record timing but no output. No decoder or test reads `gba_cycle`. The tones and the chirp are our files, not published; their md5s are in
-media.csv, and a new encode will not match them.
+`capture_all.py` runs `capture.py BUILD KIND FILE [--name NAME] --tag TAG` for every set (`--list`
+prints them, `--only SUBSTR` picks some) and then `make_manifests.py --out DIR TAG...`. `BUILD` is
+the cartridge and firmware: `orig` decodes on `py_fw0`/`py_fw1`, `v111` puts `playan.fup` on the
+card (`fup_sec0`/`fup_sec1`), `micro` is the Play-Yan Micro. Garage Game files go on the card as
+`X<NAME>.ASF` (`--name`); `make_manifests.py` names each set by the file's md5 in
+[media.csv](media.csv). The tones and the chirp are generated: integer-only PCM and LAME 4.0 from
+a pinned nixpkgs revision with every option fixed and no tags, so `make_test_audio.py` gives the
+md5s in media.csv (checked twice, and once with an empty environment).
+
+Checked on 2026-11-08: two captures of all 61 sets from two fresh work directories (firmware
+extracted, core built and test audio generated in each; one run 4 captures at a time, the other 3,
+under different machine load) gave byte-identical manifests, all 336 files, and those are the
+files here. Two inputs used to depend on the host and are now fixed in the tools: the SD card
+image (`vcm.make_sd`: volume serial and directory timestamps came from the clock unless
+`SOURCE_DATE_EPOCH` was set, which the dev shell did; it is now always 1980-01-01) and the mGBA
+source (`build.sh` took it from the floating `nixpkgs` registry entry; it is now pinned). Against
+the manifests committed before, every hash column was unchanged except the 12 sets of the
+regenerated test audio; the `gba_cycle` column of the original Play-Yan's and v1.11's video sets
+and their two `sample_music` sets moved (mostly by one 1,024-cycle coupling slice, a few frames by
+up to 0.05 s), because those had been captured with an earlier build of the emulator. The Micro's
+other sets were already byte-identical. No decoder or test reads `gba_cycle`.

@@ -50,8 +50,8 @@ this repository; [README.md](README.md) "Real firmware"):
 | MP4 container + AAC-LC | mi_fw0, fup_sec0 | manifests: headphone 3,201 / 3,201 buffers, 8-bit 1,057 / 1,057 blocks, frames 2,228 / 2,228 per set; routine oracle on 16 ffmpeg-encoded files (8-48 kHz, mono/stereo, M/S, intensity, PNS, TNS, short windows) on every frame; fuzz: 2,506 corrupted frames equal, 0 different (493 more outside the model in both) |
 | Nintendo MP3 Player DSP MP3 (MPEG-1, -2 and -2.5 Layer III) | NMP ROM | DSP oracle: `sample_music.mp3` 22,120 / 22,120 synthesis calls; 16 LAME streams plus 13 crafted ones (intensity stereo, mixed blocks at every LSF rate class): every call; 8-bit speaker stream 56 / 56 blocks on 11 streams at all nine rates; ID3 and length 32 / 32 probe files |
 
-Totals over the 61 manifest sets: 29,258 frames, 92 thumbnails, 41,191 headphone buffers and
-30,142 8-bit blocks, all bit-exact.
+Totals over the 61 manifest sets: 29,258 frames, 92 thumbnails, 41,180 headphone buffers and
+30,133 8-bit blocks, all bit-exact.
 
 ## What the decoders reproduce
 
@@ -188,7 +188,7 @@ BGR555), `--wav` the headphone PCM, `--gba-audio` the 8-bit blocks.
 
 Test gates (`crates/gbav-testkit`): `PY_ROMS` (default `GBAV_ROMS`); `PY_MEDIA`; `PY_VERIFY`
 (default `verify/playyan`); `PY_VERIFY_MEDIA`, colon-separated directories searched for the media
-of the manifests that are not Nintendo's (the test tones and chirp); `GBAV_CDIFF=1` for the
+of the manifests that are not Nintendo's (the test tones and chirp, from `tools/playyan/emu/make_test_audio.py`); `GBAV_CDIFF=1` for the
 Rust-against-C tests; `PY_MP3_CORPUS`, `PY_AAC_CORPUS`, `NMP_TEST_DIR`, `NMP_ID3_DIR` for the
 generated corpora (`tools/playyan/mp3/gen_media.py`, `tools/playyan/nmp/make_test_mp3.sh`,
 `tools/playyan/nmp/make_id3_tests.py`). `PY_MEDIA` uses the names of Nintendo's downloads:

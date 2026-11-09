@@ -232,7 +232,7 @@ def summary(entries, recs):
     # Play-Yan: real cartridge firmware in our emulator on Nintendo's sample files and test tones
     # (verify/playyan: 61 file x firmware-image sets; audio = headphone buffers + 8-bit blocks)
     out.append("| [Play-Yan](docs/playyan/README.md) (SD card media players; firmware in our emulator) | 3 in the main GBA DAT | 61 | 0.4 | "
-               "29,258 / 29,258 | 71,333 / 71,333 | [playyan](docs/playyan/decoders.md) |")
+               "29,258 / 29,258 | 71,313 / 71,313 | [playyan](docs/playyan/decoders.md) |")
     return out
 
 

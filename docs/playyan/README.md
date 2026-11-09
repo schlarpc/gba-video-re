@@ -20,7 +20,7 @@ G.726, MP3 and AAC-LC on the VC01 images, with the ASF and MP4 containers, the f
 8-bit audio output stages, and the Nintendo MP3 Player's DSP MP3 decoder
 ([decoders.md](decoders.md)). The ground truth is the real firmware in our emulator, not a capture
 from hardware: [verify/playyan](../../verify/playyan/README.md) holds hash manifests of 61 whole
-files played that way (29,258 frames, 41,191 headphone buffers, 30,142 8-bit blocks) and lists the
+files played that way (29,258 frames, 41,180 headphone buffers, 30,133 8-bit blocks) and lists the
 emulator assumptions they rest on. `gbav verify` and `cargo test` check the decoders against them.
 
 ## Findings
@@ -99,8 +99,8 @@ play each file; our decoders reproduce the firmware itself bit-exactly, [decoder
 | MP3 `sample_music.mp3`, 44.1 kHz | headphone | minimp3 | 95.3 dB | 1 | 98.31 % |
 | | | ffmpeg mp3float | 95.2 dB | 1 | 98.27 % |
 | | | ffmpeg mp3 (fixed point) | 83.7 dB | 1 | 75.20 % |
-| MP3 tones, 32 / 44.1 / 48 kHz | headphone | minimp3 | 74.2 / 83.4 / 76.8 dB | 1 | 89.58 / 98.76 / 94.26 % |
-| MP3 chirp, 44.1 kHz | headphone | minimp3 | 80.3 dB | 24 | 97.26 % |
+| MP3 tones, 32 / 44.1 / 48 kHz | headphone | minimp3 | 77.0 / 82.8 / 76.5 dB | 1 | 95.07 / 98.72 / 94.55 % |
+| MP3 chirp, 44.1 kHz | headphone | minimp3 | 94.1 dB | 2 | 97.90 % |
 | MP3, all files | 8-bit blocks | the firmware's reduction of its own headphone PCM | - | 0 | 100 % |
 | G.726-32, `sample_movie.asf` and the 13 Garage ASFs | headphone | Sun g72x (high nibble first) | exact | 0 | 100 % |
 | | | ffmpeg adpcm_g726 | 23.8-53.7 dB | - | 25-99.7 % (not ITU-exact here) |
