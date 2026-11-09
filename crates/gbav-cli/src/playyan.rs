@@ -1,8 +1,8 @@
 //! `gbav` on Play-Yan media: a media file plus a firmware source (the user's Play-Yan or
 //! Play-Yan Micro ROM, or `playan.fup`) instead of a cart.
 //!
-//!   gbav list   MEDIA --firmware FW...
-//!   gbav decode MEDIA --firmware FW... --out DIR [--png|--ppm|--raw] [--wav] [--gba-audio]
+//!   gbav list   MEDIA --firmware FW [--firmware FW]
+//!   gbav decode MEDIA --firmware FW [--firmware FW] --out DIR [--png|--ppm|--raw] [--wav] [--gba-audio]
 //!               [--brightness N] [--volume N] [--start-frame N] [--count M] [--image NAME]
 //!
 //! MEDIA is ASF (MPEG-4 + G.726), MP4 (MPEG-4 + AAC; needs a Micro or playan.fup video image)
@@ -248,7 +248,7 @@ pub fn cmd_decode(args: &[String]) -> Result<bool> {
     Ok(true)
 }
 
-/// `gbav verify --firmware FW... --manifests DIR MEDIA...`: every media file against the
+/// `gbav verify --firmware FW [--firmware FW] --manifests DIR MEDIA...`: every media file against the
 /// manifests `<image>_<file stem>.*_md5.csv.gz` that exist for it in DIR.
 pub fn cmd_verify(args: &[String]) -> Result<bool> {
     let a = Args::parse(args, &["firmware", "manifests", "volume", "prev-rate"])?;
@@ -260,6 +260,12 @@ pub fn cmd_verify(args: &[String]) -> Result<bool> {
     for m in &a.positional {
         let p = PathBuf::from(m);
         let b = std::fs::read(&p).map_err(|e| Error::Invalid(format!("{}: {e}", p.display())))?;
+        if player::detect(&b).is_none() {
+            return Err(Error::Invalid(format!(
+                "{}: not an ASF, MP4 or MP3 file (to give several firmware sources, repeat --firmware)",
+                p.display()
+            )));
+        }
         let stem = gbav_playyan::verify::manifest_stem(&dir, &p, &b);
         let mut any = false;
         for img in &fw.images {

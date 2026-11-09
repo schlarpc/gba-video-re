@@ -177,9 +177,9 @@ export PY_ROMS=/path/to/dir     # Play-Yan (Japan).gba, Play-Yan Micro (Japan).g
 export PY_MEDIA=/path/to/media  # Nintendo's sample files, one directory per download (below)
 cargo test --release -p gbav-playyan
 target/release/gbav list   FILE --firmware "$PY_ROMS/Play-Yan (Japan).gba"
-target/release/gbav decode FILE --firmware FW... --out DIR [--png|--ppm|--raw] [--wav] [--gba-audio]
+target/release/gbav decode FILE --firmware FW [--firmware FW] --out DIR [--png|--ppm|--raw] [--wav] [--gba-audio]
                           [--brightness N] [--volume N] [--start-frame N] [--count M] [--image NAME]
-target/release/gbav verify FILE... --firmware FW... --manifests verify/playyan [--volume N] [--prev-rate HZ]
+target/release/gbav verify FILE... --firmware FW [--firmware FW] --manifests verify/playyan [--volume N] [--prev-rate HZ]
 ```
 
 `FILE` is an ASF, MP4 or MP3 file; `--firmware` may be given several times, and `--image` picks

@@ -104,8 +104,8 @@ export PY_ROMS=/path/to/dir      # Play-Yan (Japan).gba, Play-Yan Micro (Japan).
                                  # Nintendo MP3 Player (Europe) (En,Fr,De,Es,It).gba; default $GBAV_ROMS
 export PY_MEDIA=/path/to/media   # Nintendo's sample files (sample_movie.asf, MP4 samples, Garage ASFs, sample_music.mp3)
 cargo test --release -p gbav-playyan                # includes every set in verify/playyan whose media is present
-target/release/gbav decode FILE --firmware FW... --out DIR [--png|--raw] [--wav] [--gba-audio]
-target/release/gbav verify FILE... --firmware FW... --manifests verify/playyan
+target/release/gbav decode FILE --firmware FW [--firmware FW] --out DIR [--png|--raw] [--wav] [--gba-audio]
+target/release/gbav verify FILE... --firmware FW [--firmware FW] --manifests verify/playyan
 make -C reference/playyan FW="$PY_ROMS/Play-Yan (Japan).gba" FW_MICRO="$PY_ROMS/Play-Yan Micro (Japan).gba" PY_ROMS="$PY_ROMS"
 ``` The C reference decoders build with
 `make -C reference/<family>` (gcc, Python 3); each family README has its verify command, e.g.

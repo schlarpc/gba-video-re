@@ -158,6 +158,20 @@ with 8 kHz mono G.726 at 32 kbit/s; the MP4 sample is MPEG-4 Simple Profile at 2
 stereo AAC-LC. The bundled converter was Panasonic's MediaStage Ver.4.2 for Nintendo (update
 V4.2L310, 28 March 2005, raised the Play-Yan video bitrates from 480/352 to 736/480 kbit/s).
 
+**MediaStage output.** Run under Wine, MediaStage's Play-Yan profile writes 240x176 MPEG-4 Simple
+Profile with H.263 quantisation and no resync markers, at 480/352/224 kbit/s and 30/30/15 fps for
+its high/normal/low settings (736/480/224 after the update, which changes only these numbers), with
+G.726-32 mono at 8 kHz. The streams use I and P frames only, an I frame every second, half-pel
+motion vectors, no 4MV, no dquant and no not-coded frames; ASF packets are 2,048 bytes, or 4,096
+above about 512 kbit/s. Every G.726 payload is 400 bytes (800 samples), in MediaStage's files and
+in all of Nintendo's. Nintendo's `sample_movie.asf` has MediaStage's high-setting headers and
+Nintendo's profile ID; the Garage Game ASFs have the same header layout but Panasonic's profile ID,
+so they came from the same toolchain with another profile. 40 conversions of our own test clips,
+before and after the update, play to the end on the original, v1.11 and Micro firmware in the
+emulator, and the decoders match the firmware on all 120 (frames, thumbnails, headphone and 8-bit
+audio). The encoder is not deterministic (two conversions of one clip differ in the video bits),
+so these files are not part of `verify/`.
+
 ## Open issues
 
 - The ground truth is our emulator, not hardware. Its assumptions (CPU model, DAC rate, peripheral

@@ -97,7 +97,7 @@ Hashes of firmware routines run on our test inputs (not full-system captures; [d
 
 ```sh
 cargo test --release -p gbav-playyan            # PY_ROMS (or GBAV_ROMS), PY_MEDIA, PY_VERIFY_MEDIA
-target/release/gbav verify FILE... --firmware FW... --manifests verify/playyan
+target/release/gbav verify FILE... --firmware FW [--firmware FW] --manifests verify/playyan
 ```
 
 ## Reproducing

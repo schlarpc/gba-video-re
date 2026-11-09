@@ -17,10 +17,10 @@ const USAGE: &str = "\
 usage:
   gbav list ROM
   gbav decode ROM --stream S --out DIR [--start-frame N] [--count M] [--png | --ppm | --raw] [--wav]
-  gbav list MEDIA --firmware FW...                    (Play-Yan: ASF / MP4 / MP3 + your ROM or playan.fup)
-  gbav decode MEDIA --firmware FW... --out DIR [--png | --ppm | --raw] [--wav] [--gba-audio]
+  gbav list MEDIA --firmware FW [--firmware FW]                    (Play-Yan: ASF / MP4 / MP3 + your ROM or playan.fup)
+  gbav decode MEDIA --firmware FW [--firmware FW] --out DIR [--png | --ppm | --raw] [--wav] [--gba-audio]
               [--brightness N] [--volume N] [--start-frame N] [--count M] [--image NAME]
-  gbav verify MEDIA... --firmware FW... --manifests DIR [--volume N] [--prev-rate HZ]
+  gbav verify MEDIA... --firmware FW [--firmware FW] --manifests DIR [--volume N] [--prev-rate HZ]
   gbav verify ROM|DIR... [--no-audio] [--jobs N]
   gbav stats ROM
   gbav make-segments ROM|DIR... [--seconds S]     (maintainers: write verify/<family>/*.audio_seg_md5.csv.gz)
